@@ -1,0 +1,128 @@
+#summary DataPort - thread-safe abstract port for data exchange
+
+= Introduction =
+
+DataPort - thread-safe abstract port for data exchange
+
+= Details =
+
+Компоненты предназначены для работы с различными аппаратными и программными портами ввода-вывода как с неким абстрактным буферизированным портом. Порт может принимать и передавать данные асинхронно, в отдельном потоке, не блокируя работу программы.
+
+TDataPort является абстрактным портом для чтения и записи данных. Сам по себе он ничего не делает, а только описывает базовые методы для записи и чтения данных, а также базовые события.
+
+Properties:
+
+  * Active - is port ready for data exchange.
+
+Methods:
+
+  * Push() - Send data to port
+  * Pull() - Get data from port. Data readed from incoming buffer, and removed after that. You can specify number of bytes for read. If incoming buffer have less bytes, than specified, then will be returned while buffer. By default, return whole buffer and clear it after.
+  * Peek() - Read data from incoming buffer, but don't remove. You can specify number of bytes for read. If incoming buffer have less bytes, than specified, then will be returned while buffer. By default, return whole buffer.
+  * PeekSize() - Returns number of bytes in incoming buffer of port.
+  * Open() - Open data port for data exchange. You can specify port initialisation string
+  * Close() - Shut down port communication
+
+Events:
+
+  * OnDataAppear - Triggered in data appear in incoming buffer of dataport.
+  * OnError - Triggered on error, contain error description.
+
+== TDataPortSerial ==
+
+Serial communication port. In Windows it COM-port (real or virtual). In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/lock/LCK..ttyS for port locking
+
+Properties:
+
+Port - port name (COM1, /dev/ttyS01)
+BaudRate - data excange speed
+MinDataBytes - minimal bytes count in buffer for triggering event OnDataAppear
+
+Methods:
+
+Open() - Opens port. As parameter it use port initialization string:
+{{{
+InitStr = 'Port,BaudRate,DataBits,Parity,StopBits,SoftFlow,HardFlow'
+
+Port - COM port name (COM1, /dev/ttyS01)
+BaudRate - connection speed (50..4000000 bits per second), default 9600
+DataBits - default 8
+Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
+StopBits - (1, 1.5, 2)
+SoftFlow - Enable XON/XOFF handshake, default 1
+HardFlow - Enable CTS/RTS handshake, default 0
+}}}
+
+Events:
+
+* OnConnect - Triggered after sucсessful connection.
+* OnDisconnect - Triggered after disconnection.
+
+Компоненты TDataPortIP, TDataPortTCP, TDataPortUDP
+
+Представляют собой асинхронную «обертку» над Synapse TBlockSocket.
+
+При использовании UDP нужно помнить, что это не сеансовый протокол, он не гарантирует доставку и правильную последовательность пакетов данных. Для начала получения данных необходимо отправить удаленной стороне пустой пакет, чтобы удаленная сторона получила наш обратный адрес.
+
+Свойства:
+
+RemoteHost - IP-адрес или имя удаленного хоста
+RemotePort - номер удаленного TCP или UDP порта
+Методы:
+
+Open() - Подключается к удаленному порту. Для TCP устанавливается сеанс связи, для UDP просто инициализируется порт. Формат строки инициализации:
+InitStr = 'RemoteHost:RemotePort'
+
+RemoteHost - IP-адрес или имя удаленного хоста
+RemotePort - номер удаленного TCP или UDP порта
+События:
+
+OnConnect - Срабатывает после инициализации порта UDP или установки сеанса TCP.
+Компонент TDataPortCom
+
+Устаревший! По функционалу аналогичен TDataPortSerial. Использует ComPort Library ver. 4.11, которая не совместима с Lazarus.
+
+Компонент TDataPortUdpFtdi
+
+Служит для подключения к драйверу-адаптеру FTDI-UDP. По сути последовательный порт, работающий поверх UDP.
+
+Компонент TDataPortHTTP
+
+Позволяет обмениваться данными по протоколу HTTP. После установки URL и параметров запроса нужно вызвать Push() для подключения и передачи данных на удаленный сервер. После успешного выполнения запроса можно прочитать полученные данные из входящего буфера. Большие объемы данных принимаются частями, при этом событие OnDataAppear может срабатывать несколько раз.
+
+Если выбран метод POST, то устанавливается параметр mime-type='application/x-www-form-urlencoded', это позволяет отдавать значения параметров как данные веб-форм.
+
+Свойства:
+
+Url: строка адреса и параметров, URL
+Params: параметры HTTP-запроса в формате имя=значение
+Method: метод HTTP-запроса
+* httpGet - GET
+* httpPost - POST
+Методы:
+
+Open() - Устанавливает строку URL HTTP-запроса, не выполняя сам запрос. Запрос выполняется при вызове метода Push(). Формат строки URL:
+URL = 'http://RemoteHost:RemotePort/Path'
+
+RemoteHost - IP-адрес или имя удаленного хоста
+RemotePort - номер удаленного TCP или UDP порта
+Path - путь к запрашиваемому ресурсу
+Компонент TDataPortFile
+
+Обмен данными через файл. Подходит для использования /dev/* в Unix или специальных файлов в Windows. Можно использовать и обычные файлы.
+
+Свойства:
+
+Filename: имя файла
+FIlePos: текущее положение в файле, в байтах от начала файла (для обычных файлов)
+QueryInterval: интервал опроса изменений в файле, мс
+MinDataBytes: минимальное число байтов в буфере, для срабатывания события OnDataAppear
+KeepOpen: нужно ли держать файл открытым между операциями чтения и записи
+* True - файл остается открытым
+* False - файл открывается перед каждой операцией чтения-записи и закрывается после завершения операции
+WriteMode: режим записи в файл
+* fwmRewrite - запись каждый раз ведется в начало файла
+* fwmAppend - данные записываются с позиции последней операции или добавляются в конец файла
+Методы:
+
+Open() - Открывает файл с указанным именем. Можно использовать префикс «file:»
