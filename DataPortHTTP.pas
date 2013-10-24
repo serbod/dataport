@@ -58,6 +58,8 @@ type
     property Active;
     property OnDataAppear;
     property OnError;
+    property OnOpen;
+    property OnClose;
   end;
 
 
@@ -403,4 +405,4 @@ begin
   FParams.Assign(Val);
 end;
 
-end.
+end.

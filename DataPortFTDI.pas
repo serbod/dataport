@@ -15,7 +15,6 @@ type
     FRemoteHost: string;
     FRemotePort: string;
     FMinDataBytes: Integer;
-    FOnConnect: TNotifyEvent;
     procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
     procedure ErrorEventHandler(Sender: TObject; AMsg: string);
     procedure OnConnectHandler(Sender: TObject);
@@ -35,7 +34,8 @@ type
     property MinDataBytes: integer read FMinDataBytes write FMinDataBytes;
     property OnDataAppear;
     property OnError;
-    property OnConnect: TNotifyEvent read FOnConnect write FOnConnect;
+    property OnOpen;
+    property OnClose;
   end;
 
 procedure Register;
@@ -171,7 +171,6 @@ end;
 
 procedure TDataPortUdpFtdi.OnConnectHandler(Sender: TObject);
 begin
-  if Assigned(FOnConnect) then FOnConnect(Self);
   if Assigned(OnOpen) then OnOpen(Self);
 end;
 
