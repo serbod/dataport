@@ -48,6 +48,8 @@ type
     property WriteMode: TFileWriteMode read FWriteMode write FWriteMode;
     property OnDataAppear;
     property OnError;
+    property OnOpen;
+    property OnClose;
   end;
 
 procedure Register;
@@ -352,4 +354,4 @@ begin
   //else if Assigned(self.IpClient) then FreeAndNil(self.IpClient);
 end;
 
-end.
+end.

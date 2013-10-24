@@ -39,7 +39,6 @@ type
     IpClient: TIpClient;
     FRemoteHost: string;
     FRemotePort: string;
-    FOnConnect: TNotifyEvent;
     procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
     procedure ErrorEventHandler(Sender: TObject; AMsg: string);
     procedure OnConnectHandler(Sender: TObject);
@@ -58,7 +57,8 @@ type
     property Active;
     property OnDataAppear;
     property OnError;
-    property OnConnect: TNotifyEvent read FOnConnect write FOnConnect;
+    property OnOpen;
+    property OnClose;
   end;
 
   TDataPortTCP = class(TDataPortIP)
@@ -393,7 +393,6 @@ end;
 procedure TDataPortIP.OnConnectHandler(Sender: TObject);
 begin
   Self.FActive:=True;
-  if Assigned(FOnConnect) then FOnConnect(Self);
   if Assigned(OnOpen) then OnOpen(Self);
 end;
 

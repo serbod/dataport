@@ -50,7 +50,6 @@ type
     FInitStr: string;
     FBaudRate: integer;
     FMinDataBytes: Integer;
-    FOnConnect: TNotifyEvent;
     procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
     procedure ErrorEventHandler(Sender: TObject; AMsg: string);
     procedure ConnectHandler(Sender: TObject);
@@ -74,7 +73,7 @@ type
     function Pull(size: Integer = MaxInt): AnsiString; override;
     function Peek(size: Integer = MaxInt): AnsiString; override;
     function PeekSize(): Cardinal; override;
-    function GetSerialPortNames(): string;
+    class function GetSerialPortNames(): string;
   published
     { COM port name }
     property Port: string read FPort write FPort;
@@ -85,7 +84,8 @@ type
     property Active;
     property OnDataAppear;
     property OnError;
-    property OnConnect: TNotifyEvent read FOnConnect write FOnConnect;
+    property OnOpen;
+    property OnClose;
   end;
 
 
@@ -131,7 +131,7 @@ begin
 
   try
     Serial:=TBlockSerial.Create();
-    Serial.DeadlockTimeout:=10000;
+    Serial.DeadlockTimeout:=3000;
     Serial.Connect(sPort);
     Sleep(1);
     if Serial.LastError=0 then
@@ -408,7 +408,7 @@ begin
   lock.EndRead();
 end;
 
-function TDataPortSerial.GetSerialPortNames: string;
+class function TDataPortSerial.GetSerialPortNames: string;
 begin
   Result:=synaser.GetSerialPortNames();
 end;
@@ -465,8 +465,7 @@ end;
 procedure TDataPortSerial.ConnectHandler(Sender: TObject);
 begin
   self.FActive:=True;
-  if Assigned(FOnConnect) then FOnConnect(Self);
   if Assigned(OnOpen) then OnOpen(Self);
 end;
 
-end.
+end.
