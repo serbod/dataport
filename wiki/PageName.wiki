@@ -2,13 +2,29 @@
 
 = Introduction =
 
-DataPort - thread-safe abstract port for data exchange
+DataPort - thread-safe abstract port for data exchange. You can open DataPort and push some data into - data will appear on other side. And if other side send some data, you will get notifyed and can pull data from port at any time.
 
-= Details =
+All DataPort components are asynchronous and use separate thread for waiting and reading data from port. TDataPort can be used as property for your components, then just assign one of non-visual DataPorts in form designer.
 
-Компоненты предназначены для работы с различными аппаратными и программными портами ввода-вывода как с неким абстрактным буферизированным портом. Порт может принимать и передавать данные асинхронно, в отдельном потоке, не блокируя работу программы.
+= Features =
 
-TDataPort является абстрактным портом для чтения и записи данных. Сам по себе он ничего не делает, а только описывает базовые методы для записи и чтения данных, а также базовые события.
+  * non-visual components for Lazarus/Delphi
+  * network (TCP/UDP/HTTP)
+  * serial port (COM-port)
+  * regular file
+  * device file (ioctl supported)
+
+Coming soon:
+
+  * listener (server)
+  * pipes
+  * paralel port (LPT)
+  * DDE
+  * IPC
+
+= TDataPort =
+
+TDataPort is abstract component for reading and writing data to some port. It don't do anything and needs to be used as property or parent class for new components.
 
 Properties:
 
@@ -60,7 +76,7 @@ Events:
 
 == Компоненты TDataPortIP, TDataPortTCP, TDataPortUDP ==
 
-Представляют собой асинхронную «обертку» над Synapse TBlockSocket.
+Asynchronous wrapper around Synapse TBlockSocket.
 
 При использовании UDP нужно помнить, что это не сеансовый протокол, он не гарантирует доставку и правильную последовательность пакетов данных. Для начала получения данных необходимо отправить удаленной стороне пустой пакет, чтобы удаленная сторона получила наш обратный адрес.
 
