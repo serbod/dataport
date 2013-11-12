@@ -74,62 +74,58 @@ Events:
   * OnConnect - Triggered after sucсessful connection.
   * OnDisconnect - Triggered after disconnection.
 
-== Компоненты TDataPortIP, TDataPortTCP, TDataPortUDP ==
+== TDataPortIP, TDataPortTCP, TDataPortUDP ==
 
 Asynchronous wrapper around Synapse TBlockSocket.
 
-При использовании UDP нужно помнить, что это не сеансовый протокол, он не гарантирует доставку и правильную последовательность пакетов данных. Для начала получения данных необходимо отправить удаленной стороне пустой пакет, чтобы удаленная сторона получила наш обратный адрес.
+When using UDP, remember, that it not session protocol, data delivery and correct order not guaranteed. To start receive tde data, you must send empty packet to remote side, it tell remote side return address.
 
-Свойства:
+Properties:
 
-  * RemoteHost - IP-адрес или имя удаленного хоста
-  * RemotePort - номер удаленного TCP или UDP порта
+  * RemoteHost - IP-address or name of remote host
+  * RemotePort - remote UPD or TCP port number
 
-Методы:
+Methods:
 
-  * Open() - Подключается к удаленному порту. Для TCP устанавливается сеанс связи, для UDP просто инициализируется порт. Формат строки инициализации:
+  * Open() - Connect to remote port. Session establiched for TCP and just port initialised for UDP. Init string format:
 {{{
 InitStr = 'RemoteHost:RemotePort'
 
-RemoteHost - IP-адрес или имя удаленного хоста
-RemotePort - номер удаленного TCP или UDP порта
+RemoteHost - IP-address or name of remote host
+RemotePort - remote UPD or TCP port number
 }}}
 
-События:
+Events:
 
-  * OnConnect - Срабатывает после инициализации порта UDP или установки сеанса TCP.
+  * OnConnect - Triggered after UDP port init or TCP session establiched.
 
-== Компонент TDataPortCom ==
+== TDataPortUdpFtdi ==
 
-Устаревший! По функционалу аналогичен TDataPortSerial. Использует ComPort Library ver. 4.11, которая не совместима с Lazarus.
+Purposed for communicate with FTDI serial port chip over UDP. It same as TDataPortSerial, but working over UDP.
 
-== Компонент TDataPortUdpFtdi ==
+== TDataPortHTTP ==
 
-Служит для подключения к драйверу-адаптеру FTDI-UDP. По сути последовательный порт, работающий поверх UDP.
+Allows you to communicate via HTTP. Specify URL and request parameters, then call Push() to connect and transfer data to a remote server. After successful execution of the request, data can be read from the input buffer. Large amounts of data received by parts, and OnDataAppear event can be triggered multiple times.
 
-== Компонент TDataPortHTTP ==
+If POST method selected, then request parameter mime-type='application/x-www-form-urlencoded' set, it allow transfer parameters as web form values.
 
-Позволяет обмениваться данными по протоколу HTTP. После установки URL и параметров запроса нужно вызвать Push() для подключения и передачи данных на удаленный сервер. После успешного выполнения запроса можно прочитать полученные данные из входящего буфера. Большие объемы данных принимаются частями, при этом событие OnDataAppear может срабатывать несколько раз.
+Properties:
 
-Если выбран метод POST, то устанавливается параметр mime-type='application/x-www-form-urlencoded', это позволяет отдавать значения параметров как данные веб-форм.
-
-Свойства:
-
-  * Url: строка адреса и параметров, URL
-  * Params: параметры HTTP-запроса в формате имя=значение
-  * Method: метод HTTP-запроса
+  * Url: address and params string, URL
+  * Params: HTTP request params in name=value format
+  * Method: HTTP request method
     * httpGet - GET
     * httpPost - POST
 
-Методы:
+Methods:
 
-  * Open() - Устанавливает строку URL HTTP-запроса, не выполняя сам запрос. Запрос выполняется при вызове метода Push(). Формат строки URL:
+  * Open() - sets URL string for HTTP request, but not send request itself. Request will be sent on Push(). URL string format:
 {{{
 URL = 'http://RemoteHost:RemotePort/Path'
 
-RemoteHost - IP-адрес или имя удаленного хоста
-RemotePort - номер удаленного TCP или UDP порта
-Path - путь к запрашиваемому ресурсу
+RemoteHost - IP-address or name of remote host
+RemotePort - remote UPD or TCP port number
+Path - path to requested resource
 }}}
 
 == Компонент TDataPortFile ==
