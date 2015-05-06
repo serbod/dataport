@@ -1,5 +1,27 @@
-unit DataPortFile;
+{
+Sergey Bodrov, 2012-2015
+
+Data exchange via file. Suitable for device files (/dev/* under Unix or special
+files in Windows). Conventional data files can be used too.
+
+Properties:
+  Filename - Path (optionally) and name of file.
+  FilePos - Current position in file, bytes from beginning (for conventional files).
+  QueryInterval - Interval for checking changes in file, milliseconds.
+  MinDataBytes - Minimum number of bytes in buffer for triggering OnDataAppear event.
+  KeepOpen - Keep the file open between read and write operations:
+    True - file stay opened
+    False - file will be opened before every read/write operation and closed after.
+  WriteMode - File write mode:
+    fwmRewrite - every write apply to beginning of file
+    fwmAppend - data written from last operation position or appended to the end of file
+
+Methods:
+  Open() - Opens file with given name, "file:" prefix can be used.
+}
 { TODO : Add thread-safe file reader }
+unit DataPortFile;
+
 interface
 uses SysUtils, Classes, DataPort
 {$IFDEF UNIX}
@@ -31,6 +53,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
+    { Opens file with given name, "file:" prefix can be used }
     procedure Open(InitStr: string = ''); override;
     procedure Close(); override;
     function Push(sMsg: AnsiString): Boolean; override;
@@ -40,11 +63,21 @@ type
     function ioctl_cmd(ACmd: string): string;
   published
     property Active;
+    { Path (optionally) and name of file }
     property FileName: string read FFileName write FFileName;
+    { Current position in file, bytes from beginning (for conventional files) }
     property FilePos: Cardinal read FFilePos write FFilePos;
+    { Interval for checking changes in file, milliseconds }
     property QueryInterval: Cardinal read FQueryInterval write FQueryInterval;
+    { Minimum number of bytes in buffer for triggering OnDataAppear event }
     property MinDataBytes: Cardinal read FMinDataBytes write FMinDataBytes;
-    property KeepOpen: boolean read FKeepOpen write FKeepOpen;
+    { Keep the file open between read and write operations:
+      True - file stay opened
+      False - file will be opened before every read/write operation and closed after. }
+    property KeepOpen: Boolean read FKeepOpen write FKeepOpen;
+    { WriteMode - File write mode:
+      fwmRewrite - every write apply to beginning of file
+      fwmAppend - data written from last operation position or appended to the end of file }
     property WriteMode: TFileWriteMode read FWriteMode write FWriteMode;
     property OnDataAppear;
     property OnError;
@@ -73,19 +106,17 @@ begin
   FFilePos:=0;
   FQueryInterval:=100;
   FMinDataBytes:=1;
-  FFileHandle:=0;
+  FFileHandle:=feInvalidHandle;
   FKeepOpen:=False;
   FWriteMode:=fwmAppend;
   FActive:=False;
-  //Self.IpClient:=nil;
 end;
 
 procedure TDataPortFile.Open(InitStr: string = '');
 var
   n: Integer;
-  s: AnsiString;
 begin
-  // Set host and port from init string
+  // Set filename from init string
   if InitStr<>'' then
   begin
     n:=Pos(':', InitStr);
@@ -97,23 +128,41 @@ begin
       Self.FFileName:=InitStr;
   end;
 
+  if FFileName='' then Exit;
   if not FileExists(FFileName) then
   begin
-    s:='a';
-    FFileHandle:=FileCreate(FFileName);
-    FileWrite(FFileHandle, s[1], Length(s));
-    FileTruncate(FFileHandle, 0);
-    if not FKeepOpen then
-    begin
+    // file not exists - test file create and write
+    try
+      FFileHandle:=FileCreate(FFileName);
+    except
+      FFileHandle:=feInvalidHandle;
+    end;
+    if FFileHandle = feInvalidHandle then Exit;
+    // try to write first char of filename into file
+    try
+      FileWrite(FFileHandle, FFileName[1], 1);
+      FileTruncate(FFileHandle, 0);
+      if not FKeepOpen then
+      begin
+        FileClose(FFileHandle);
+        FFileHandle:=feInvalidHandle;
+      end;
+    except
       FileClose(FFileHandle);
-      FFileHandle:=0;
+      FFileHandle:=feInvalidHandle;
+      Exit;
     end;
   end
   else
   begin
     if KeepOpen then
     begin
-      FFileHandle:=FileOpen(FFileName, fmOpenReadWrite);
+      try
+        FFileHandle:=FileOpen(FFileName, fmOpenReadWrite);
+      except
+        FFileHandle:=feInvalidHandle;
+      end;
+      if FFileHandle = feInvalidHandle then Exit;
       if WriteMode=fwmAppend then FileSeek(FFileHandle, 0, fsFromEnd);
     end;
   end;
@@ -122,10 +171,10 @@ end;
 
 procedure TDataPortFile.Close();
 begin
-  if KeepOpen or (FFileHandle<>0) then
+  if KeepOpen or (FFileHandle <> feInvalidHandle) then
   begin
     FileClose(FFileHandle);
-    FFileHandle:=0;
+    FFileHandle:=feInvalidHandle;
   end;
   inherited Close();
 end;
@@ -172,7 +221,8 @@ begin
     try
       FFileHandle:=FileOpen(FFileName, fmOpenReadWrite or fmShareDenyNone);
       if WriteMode=fwmAppend then FileSeek(FFileHandle, FilePos, fsFromBeginning);
-    except on E:Exception do
+    except
+      on E:Exception do
       begin
         if Assigned(FOnError) then FOnError(Self, E.Message);
         Exit;
@@ -183,7 +233,8 @@ begin
   // read data to buf
   try
     res:=FileRead(FFileHandle, buf, SizeOf(buf));
-  except on E:Exception do
+  except
+    on E:Exception do
     begin
       if Assigned(FOnError) then FOnError(Self, E.Message);
       Exit;
@@ -203,7 +254,7 @@ begin
   begin
     // close file
     FileClose(FFileHandle);
-    FFileHandle:=0;
+    FFileHandle:=feInvalidHandle;
   end;
 end;
 
@@ -219,7 +270,6 @@ function TDataPortFile.PeekSize(): Cardinal;
 begin
   lock.BeginRead();
   FReadToSelf();
-  // Length of all strings
   Result:=Cardinal(Length(sReadData));
   lock.EndRead();
 end;
@@ -295,7 +345,7 @@ begin
   begin
     // close file
     FileClose(FFileHandle);
-    FFileHandle:=0;
+    FFileHandle:=feInvalidHandle;
   end;
 end;
 
@@ -320,8 +370,10 @@ begin
   begin
     try
       FileWrite(FFileHandle, sMsg[1], Length(sMsg));
+      Result:=True;
     except on E:Exception do
       begin
+        lock.EndWrite();
         if Assigned(FOnError) then FOnError(Self, E.Message);
         Exit;
       end;
@@ -336,13 +388,15 @@ begin
       if WriteMode=fwmAppend then FileSeek(FFileHandle, 0, fsFromEnd);
       FileWrite(FFileHandle, sMsg[1], Length(sMsg));
       FileClose(FFileHandle);
+      Result:=True;
     except on E:Exception do
       begin
+        lock.EndWrite();
         if Assigned(FOnError) then FOnError(Self, E.Message);
         Exit;
       end;
     end;
-    FFileHandle:=0;
+    FFileHandle:=feInvalidHandle;
   end;
   lock.EndWrite();
 end;

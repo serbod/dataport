@@ -1,3 +1,25 @@
+{
+Asynchronous wrapper around Synapse TBlockSocket.
+
+Sergey Bodrov, 2012-2015
+
+When using UDP, remember, that it not session protocol, data delivery and correct
+order not guaranteed. To start receive tde data, you must send empty packet to
+remote side, it tell remote side return address.
+
+Properties:
+  RemoteHost - IP-address or name of remote host
+  RemotePort - remote UPD or TCP port number
+
+Methods:
+  Open() - Connect to remote port. Session establiched for TCP and just port initialised for UDP. Init string format:
+    InitStr = 'RemoteHost:RemotePort'
+    RemoteHost - IP-address or name of remote host
+    RemotePort - remote UPD or TCP port number
+
+Events:
+  OnConnect - Triggered after UDP port init or TCP session establiched.
+}
 unit DataPortIP;
 
 interface
@@ -45,6 +67,10 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
+    { Open() - Connect to remote port. Session establiched for TCP and just port initialised for UDP. Init string format:
+      InitStr = 'RemoteHost:RemotePort'
+      RemoteHost - IP-address or name of remote host
+      RemotePort - remote UPD or TCP port number }
     procedure Open(InitStr: string = ''); override;
     procedure Close(); override;
     function Push(sMsg: AnsiString): Boolean; override;
@@ -52,11 +78,14 @@ type
     function Peek(size: Integer = MaxInt): AnsiString; override;
     function PeekSize(): Cardinal; override;
   published
+    { IP-address or name of remote host }
     property RemoteHost: string read FRemoteHost write FRemoteHost;
+    { remote UPD or TCP port number }
     property RemotePort: string read FRemotePort write FRemotePort;
     property Active;
     property OnDataAppear;
     property OnError;
+    { Triggered after UDP port init or TCP session establiched }
     property OnOpen;
     property OnClose;
   end;
@@ -70,7 +99,6 @@ type
   public
     procedure Open(InitStr: string = ''); override;
   end;
-
 
 procedure Register;
 
@@ -207,7 +235,6 @@ constructor TDataPortIP.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   self.lock:=TMultiReadExclusiveWriteSynchronizer.Create();
-  //Self.slReadData:=TStringList.Create();
   Self.FRemoteHost:='';
   Self.FRemotePort:='';
   Self.FActive:=False;
@@ -259,7 +286,6 @@ end;
 destructor TDataPortIP.Destroy();
 begin
   if Assigned(self.IpClient) then FreeAndNil(self.IpClient);
-  //FreeAndNil(self.slReadData);
   FreeAndNil(self.lock);
   inherited Destroy();
 end;
@@ -270,7 +296,6 @@ begin
   begin
     if lock.BeginWrite then
     begin
-      //slReadData.Add(AMsg);
       sReadData:=sReadData+AMsg;
       lock.EndWrite;
 
@@ -286,26 +311,6 @@ begin
   self.FActive:=False;
 end;
 
-{
-function TDataPortIP.Peek(size: Integer = MaxInt): AnsiString;
-var
-  i, num, remain: Integer;
-begin
-  Result:='';
-  remain:=size;
-  lock.BeginRead();
-  for i:=0 to slReadData.Count do
-  begin
-    num:=Length(slReadData[i]);
-    if num>remain then num:=remain;
-    Result:=Result+Copy(slReadData[i], 1, num);
-    remain:=remain-num;
-    if remain<=0 then Break;
-  end;
-  lock.EndRead();
-end;
-}
-
 function TDataPortIP.Peek(size: Integer = MaxInt): AnsiString;
 begin
   lock.BeginRead();
@@ -314,43 +319,11 @@ begin
 end;
 
 function TDataPortIP.PeekSize(): Cardinal;
-//var i: Integer;
 begin
-  //Result:=0;
   lock.BeginRead();
-  //// Length of all strings
-  //for i:=0 to slReadData.Count-1 do Result:=Result+Cardinal(Length(slReadData[i]));
   Result:=Cardinal(Length(sReadData));
   lock.EndRead();
 end;
-
-{
-function TDataPortIP.Pull(size: Integer = MaxInt): AnsiString;
-var
-  num, len, remain: Integer;
-begin
-  Result:='';
-  remain:=size;
-  if not lock.BeginWrite() then Exit;
-  while slReadData.Count>0 do
-  begin
-    // we read every string to exclude line delimiters
-    len:=Length(slReadData[0]);
-    num:=len;
-    if num>remain then num:=remain;
-    Result:=Result+Copy(slReadData[0], 1, num);
-    remain:=remain-num;
-    if num>=len then slReadData.Delete(0)
-    else
-    begin
-      Delete(slReadData[0], 1, num);
-      Break;
-    end;
-    if remain<=0 then Break;
-  end;
-  lock.EndWrite();
-end;
-}
 
 function TDataPortIP.Pull(size: Integer = MaxInt): AnsiString;
 begin
@@ -358,7 +331,6 @@ begin
   if not lock.BeginWrite() then Exit;
   Result:=Copy(sReadData, 1, size);
   Delete(sReadData, 1, size);
-  //sReadData:='';
   lock.EndWrite();
 end;
 
@@ -378,7 +350,7 @@ procedure TDataPortTCP.Open(InitStr: string = '');
 begin
   inherited Open(InitStr);
   Self.IpClient.protocol:=ippTCP;
-  Self.IpClient.Start();
+  Self.IpClient.Suspended:=False;
   Self.FActive:=True;
 end;
 
@@ -386,7 +358,7 @@ procedure TDataPortUDP.Open(InitStr: string = '');
 begin
   inherited Open(InitStr);
   Self.IpClient.protocol:=ippUDP;
-  Self.IpClient.Start();
+  Self.IpClient.Suspended:=False;
   Self.FActive:=True;
 end;
 

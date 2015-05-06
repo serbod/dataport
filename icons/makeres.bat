@@ -1,2 +1,2 @@
-lazres.exe ../DataPortLasarus.lrs TDataPortCom.png TDataPortUdpFtdi.png TDataPortHttp.png TDataPortSerial.png TDataPortTcp.png TDataPortUdp.png TDataPortFile.png
+lazres.exe ../DataPortLasarus.lrs TDataPortPipes.png TDataPortUdpFtdi.png TDataPortHttp.png TDataPortSerial.png TDataPortTcp.png TDataPortUdp.png TDataPortFile.png
 

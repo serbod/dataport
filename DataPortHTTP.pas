@@ -1,6 +1,32 @@
+{
+Allows you to communicate via HTTP. Specify URL and request parameters,
+then call Push() to connect and transfer data to a remote server.
+After successful execution of the request, data can be read from the input buffer.
+Large amounts of data received by parts, and OnDataAppear event can be triggered multiple times.
+
+If POST method selected, then request parameter mime-type='application/x-www-form-urlencoded' set,
+it allow transfer parameters as web form values.
+
+Sergey Bodrov, 2012-2015
+
+Properties:
+  Url - address and params string, URL
+  Params - HTTP request params in name=value format
+  Method - HTTP request method
+    httpGet - GET
+    httpPost - POST
+
+Methods:
+  Open() - sets URL string for HTTP request, but not send request itself. Request will be sent on Push(). URL string format:
+    URL = 'http://RemoteHost:RemotePort/Path'
+    RemoteHost - IP-address or name of remote host
+    RemotePort - remote UPD or TCP port number
+    Path - path to requested resource
+}
 unit DataPortHTTP;
-{$DEFINE non-thread}
+
 interface
+
 uses SysUtils, Classes, DataPort, httpsend, synautil, synacode;
 
 type
@@ -38,6 +64,7 @@ type
     FUrl: string;
     FParams: TStrings;
     FMethod: THttpMethods;
+    FSafeMode: boolean;
     procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
     procedure ErrorEventHandler(Sender: TObject; AMsg: string);
   protected
@@ -45,6 +72,11 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
+    { Open() - sets URL string for HTTP request, but not send request itself. Request will be sent on Push(). URL string format:
+      URL = 'http://RemoteHost:RemotePort/Path'
+      RemoteHost - IP-address or name of remote host
+      RemotePort - remote UPD or TCP port number
+      Path - path to requested resource }
     procedure Open(InitStr: string = ''); override;
     procedure Close(); override;
     function Push(sMsg: AnsiString): Boolean; override;
@@ -52,9 +84,18 @@ type
     function Peek(size: Integer = MaxInt): AnsiString; override;
     function PeekSize(): Cardinal; override;
   published
+    { address and params string, URL }
     property Url: string read FUrl write FUrl;
+    { HTTP request params in name=value format }
     property Params: TStrings read FParams write FSetParams;
+    { Method - HTTP request method
+      httpGet - GET
+      httpPost - POST }
     property Method: THttpMethods read FMethod write FMethod;
+    { Use this property if you encounter troubles:
+      True - Non-threaded synchronous behavior
+      False - Asynchronous behavior }
+    property SafeMode: boolean read FSafeMode write FSafeMode;
     property Active;
     property OnDataAppear;
     property OnError;
@@ -105,23 +146,33 @@ begin
 
   try
     bResult:=self.HttpSend.HTTPMethod(sMethod, Self.url);
-    if not bResult then
-    begin
-      sLastError:='Cannot connect';
-      Synchronize(SyncProc);
-    end;
-    while not Terminated do
-    begin
-      s:=synautil.ReadStrFromStream(Self.HttpSend.Document, Self.HttpSend.Document.Size);
-      if Self.HttpSend.Document.Size=0 then sLastError:='Zero content size';
-      Synchronize(SyncProc);
-      Sleep(10);
-      Terminate();
-    end;
-    Self.HttpSend.Clear();
-  finally
-    FreeAndNil(Self.HttpSend);
+  except
+    bResult:=False;
   end;
+
+  if not bResult then
+  begin
+    sLastError:='Cannot connect';
+    Synchronize(SyncProc);
+  end;
+
+  if Self.HttpSend.Document.Size=0 then
+  begin
+    sLastError:='Zero content size';
+    Synchronize(SyncProc);
+  end;
+
+  if self.HttpSend.DownloadSize<>Self.HttpSend.Document.Size then
+  begin
+    sLastError:='Download size='+IntToStr(self.HttpSend.DownloadSize)+'  doc size='+IntToStr(Self.HttpSend.Document.Size);
+    Synchronize(SyncProc);
+  end;
+
+  s:=synautil.ReadStrFromStream(Self.HttpSend.Document, Self.HttpSend.Document.Size);
+  Synchronize(SyncProc);
+  Self.HttpSend.Clear();
+  FreeAndNil(Self.HttpSend);
+  Terminate();
 end;
 
 function THttpClient.SendString(s: string): Boolean;
@@ -150,6 +201,7 @@ begin
   FParams:=TStringList.Create();
   FMethod:=httpGet;
   FActive:=False;
+  FSafeMode:=True;
   //Self.slReadData:=TStringList.Create();
   Self.sReadData:='';
   Self.HttpClient:=nil;
@@ -164,29 +216,32 @@ begin
     if Assigned(Self.FOnError) then Self.FOnError(Self, 'Empty URL');
     Exit;
   end;
-  {$IFNDEF non-thread}
-  Self.HttpClient:=THttpClient.Create(true);
-  Self.HttpClient.OnIncomingMsgEvent:=self.IncomingMsgHandler;
-  Self.HttpClient.OnErrorEvent:=Self.ErrorEventHandler;
-  Self.HttpClient.url:=Url;
-  Self.HttpClient.FreeOnTerminate:=True;
-  Self.HttpClient.Start();
-  {$ENDIF}
+  if not self.SafeMode then
+  begin
+    // threaded request
+    Self.HttpClient:=THttpClient.Create(true);
+    Self.HttpClient.OnIncomingMsgEvent:=self.IncomingMsgHandler;
+    Self.HttpClient.OnErrorEvent:=Self.ErrorEventHandler;
+    Self.HttpClient.url:=Url;
+    Self.HttpClient.FreeOnTerminate:=True;
+    Self.HttpClient.Suspended:=False;
+  end;
   inherited Open(InitStr);
 end;
 
 procedure TDataPortHTTP.Close();
 begin
-  {$IFNDEF non-thread}
-  if Assigned(self.HttpClient) then
+  if not self.SafeMode then
   begin
-    //Self.HttpClient.OnIncomingMsgEvent:=nil;
-    //Self.HttpClient.OnErrorEvent:=nil;
-    self.HttpClient.Terminate();
-    //FreeAndNil(self.HttpClient);
-    self.HttpClient:=nil;
+    if Assigned(self.HttpClient) then
+    begin
+      //Self.HttpClient.OnIncomingMsgEvent:=nil;
+      //Self.HttpClient.OnErrorEvent:=nil;
+      self.HttpClient.Terminate();
+      //FreeAndNil(self.HttpClient);
+      self.HttpClient:=nil;
+    end;
   end;
-  {$ENDIF}
   inherited Close();
 end;
 
@@ -329,75 +384,79 @@ begin
     sData:=sParams+sMsg;
   end;
 
-  {$IFDEF non-thread}
-  Self.HttpSend:=THTTPSend.Create();
-  sLastError:='';
-  sMethod:='GET';
-  synautil.WriteStrToStream(Self.HttpSend.Document, sData);
-  if self.method=httpPost then
+  if self.SafeMode then
   begin
-    sMethod:='POST';
-    Self.HttpSend.MimeType:='application/x-www-form-urlencoded';
-  end;
+    // non-threaded
+    Self.HttpSend:=THTTPSend.Create();
+    sLastError:='';
+    sMethod:='GET';
+    synautil.WriteStrToStream(Self.HttpSend.Document, sData);
+    if self.method=httpPost then
+    begin
+      sMethod:='POST';
+      Self.HttpSend.MimeType:='application/x-www-form-urlencoded';
+    end;
 
-  try
-    bResult:=self.HttpSend.HTTPMethod(sMethod, sUrl);
-  except
-    if Assigned(OnError) then OnError(self, 'Cannot connect');
-  end;
+    try
+      bResult:=self.HttpSend.HTTPMethod(sMethod, sUrl);
+    except
+      if Assigned(OnError) then OnError(self, 'Cannot connect');
+    end;
 
-  if not bResult then
-  begin
-    if Assigned(OnError) then OnError(self, 'Cannot connect');
+    if not bResult then
+    begin
+      if Assigned(OnError) then OnError(self, 'Cannot connect');
+    end
+
+    else if Self.HttpSend.Document.Size=0 then
+    begin
+      if Assigned(OnError) then OnError(self, 'Zero content size');
+    end
+
+    else
+    begin
+      if lock.BeginWrite() then
+      begin
+        sReadData:=sReadData+synautil.ReadStrFromStream(Self.HttpSend.Document, Self.HttpSend.Document.Size);
+        lock.EndWrite();
+      end;
+      if Assigned(OnDataAppear) then OnDataAppear(self);
+    end;
+
+    FreeAndNil(Self.HttpSend);
   end
-
-  else if Self.HttpSend.Document.Size=0 then
-  begin
-    if Assigned(OnError) then OnError(self, 'Zero content size');
-  end
-
   else
   begin
+    // threaded
+    if not Assigned(self.HttpClient) then Exit;
+    if not Active then Exit;
     if lock.BeginWrite() then
     begin
-      sReadData:=sReadData+synautil.ReadStrFromStream(Self.HttpSend.Document, Self.HttpSend.Document.Size);
+      HttpClient.url:=FUrl;
+      HttpClient.method:=FMethod;
+      sParams:='';
+      for i:=0 to FParams.Count-1 do
+      begin
+        if sParams<>'' then sParams:=sParams+'&';
+        sParams:=sParams+synacode.EncodeURL(FParams[i]);
+      end;
+
+      if method=httpGet then
+      begin
+        if FParams.Count>0 then
+        begin
+          HttpClient.url:=HttpClient.url+'?'+sParams;
+          self.HttpClient.SendString(sMsg);
+        end;
+      end
+      else if method=httpPost then
+      begin
+        HttpClient.SendString(sParams+sMsg);
+      end;
+      Result:=True;
       lock.EndWrite();
     end;
-    if Assigned(OnDataAppear) then OnDataAppear(self);
   end;
-
-  FreeAndNil(Self.HttpSend);
-  {$ELSE}
-
-  if not Assigned(self.HttpClient) then Exit;
-  if not Active then Exit;
-  if lock.BeginWrite() then
-  begin
-    HttpClient.url:=FUrl;
-    HttpClient.method:=FMethod;
-    sParams:='';
-    for i:=0 to FParams.Count-1 do
-    begin
-      if sParams<>'' then sParams:=sParams+'&';
-      sParams:=sParams+synacode.EncodeURL(FParams[i]);
-    end;
-
-    if method=httpGet then
-    begin
-      if FParams.Count>0 then
-      begin
-        HttpClient.url:=HttpClient.url+'?'+sParams;
-        self.HttpClient.SendString(sMsg);
-      end;
-    end
-    else if method=httpPost then
-    begin
-      HttpClient.SendString(sParams+sMsg);
-    end;
-    Result:=True;
-    lock.EndWrite();
-  end;
-  {$ENDIF}
 end;
 
 procedure TDataPortHTTP.FSetParams(Val: TStrings);

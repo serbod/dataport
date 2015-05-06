@@ -1,33 +1,39 @@
+{
+DataPort - thread-safe abstract port for data exchange
+
+Sergey Bodrov (serbod@gmail.com) 2012-2015
+
+TDataPort is abstract component for reading and writing data to some port.
+It don't do anything and needs to be used as property or parent class for new components.
+
+Properties:
+Active - is port ready for data exchange
+
+Methods:
+Push() - Send data to port
+Pull() - Get data from port. Data readed from incoming buffer, and removed after that.
+  You can specify number of bytes for read. If incoming buffer have less bytes,
+  than specified, then will be returned while buffer.
+  By default, return whole buffer and clear it after.
+Peek() - Read data from incoming buffer, but don't remove. You can specify number
+  of bytes for read. If incoming buffer have less bytes, than specified,
+  then will be returned while buffer. By default, return whole buffer.
+PeekSize() - Returns number of bytes in incoming buffer of port.
+
+Events:
+OnDataAppear - Triggered in data appear in incoming buffer of dataport.
+OnOpen - Triggered after sucсessful opening connection.
+OnClose - Triggered when connection gracefully closed.
+OnError - Triggered on error, contain error description.
+}
+
 unit DataPort;
-{ Sergey Bodrov (serbod@gmail.com) 2012-2013 }
 
 interface
 uses Classes;
 
 type
   TMsgEvent = procedure(Sender: TObject; AMsg: string) of object;
-
-  { DataPort - thread-safe abstract port for data exchange
-
-  DataPort является абстрактным портом для чтения и записи данных.
-  Сам по себе он ничего не делает, а только описывает базовые методы для записи и
-  чтения данных, а также базовые события.
-
-  Свойства:
-  Active - активность, готовность порта к обмену данными.
-
-  Методы:
-  Push() - отправка данных в порт
-  Pull() - взятие данных из входящего буфера порта
-  Peek() - чтение данных из входящего буфера порта, данные при этом остаются в буфере
-  PeekSize() - число байтов данных, ожидающих во входящем буфере порта
-
-  События:
-  OnDataAppear - срабатывает при появлении данных во входящем буфере порта
-  OnOpen - срабатывает после успешного открытия порта
-  OnClose - срабатывает после закрытия порта
-  OnError - срабатывает при ошибке порта, содержит описание ошибки
-  }
 
   { TDataPort }
 
@@ -41,26 +47,26 @@ type
     procedure FSetActive(Val: boolean); virtual;
   public
     property Active: boolean read FActive write FSetActive;
-    // Occurs when new data appears in incoming buffer
+    { Occurs when new data appears in incoming buffer }
     property OnDataAppear: TNotifyEvent read FOnDataAppear write FOnDataAppear;
-    // Occurs immediately after dataport has been sucsessfully opened
+    { Occurs immediately after dataport has been sucsessfully opened }
     property OnOpen: TNotifyEvent read FOnOpen write FOnOpen;
-    // Occurs after dataport has been closed
+    { Occurs after dataport has been closed }
     property OnClose: TNotifyEvent read FOnClose write FOnClose;
-    // Occurs when dataport operations fails, contain error description
+    { Occurs when dataport operations fails, contain error description }
     property OnError: TMsgEvent read FOnError write FOnError;
     { Open dataport with specified initialization string
       If InitStr not specified, used default or designed settings }
     procedure Open(InitStr: string = ''); virtual;
-    // Close dataport
+    { Close dataport }
     procedure Close(); virtual;
-    // Write data string to port
+    { Write data string to port }
     function Push(sMsg: AnsiString): Boolean; virtual; abstract;
-    // Read and remove <size> bytes from incoming buffer. By default, read all data.
+    { Read and remove <size> bytes from incoming buffer. By default, read all data. }
     function Pull(size: Integer = MaxInt): AnsiString; virtual; abstract;
-    // Read, but not remove <size> bytes from incoming buffer.
+    { Read, but not remove <size> bytes from incoming buffer. }
     function Peek(size: Integer = MaxInt): AnsiString; virtual; abstract;
-    // Get number of bytes waiting in incoming buffer
+    { Get number of bytes waiting in incoming buffer }
     function PeekSize(): Cardinal; virtual; abstract;
   end;
 

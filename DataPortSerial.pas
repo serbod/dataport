@@ -1,7 +1,31 @@
-unit DataPortSerial;
 {
-  Sergey Bodrov, 2012-2013
+Serial communication port (UART). In Windows it COM-port, real or virtual.
+In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/lock/LCK..ttyS for port locking
+
+Sergey Bodrov, 2012-2015
+
+Properties:
+  Port - port name (COM1, /dev/ttyS01)
+  BaudRate - data excange speed
+  MinDataBytes - minimal bytes count in buffer for triggering event OnDataAppear
+
+Methods:
+  Open() - Opens port. As parameter it use port initialization string:
+    InitStr = 'Port,BaudRate,DataBits,Parity,StopBits,SoftFlow,HardFlow'
+
+    Port - COM port name (COM1, /dev/ttyS01)
+    BaudRate - connection speed (50..4000000 bits per second), default 9600
+    DataBits - default 8
+    Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
+    StopBits - (1, 1.5, 2)
+    SoftFlow - Enable XON/XOFF handshake, default 1
+    HardFlow - Enable CTS/RTS handshake, default 0
+
+Events:
+  OnConnect - Triggered after sucсessful connection.
+  OnDisconnect - Triggered after disconnection.
 }
+unit DataPortSerial;
 
 interface
 uses SysUtils, Classes, DataPort, synaser, synautil;
@@ -11,7 +35,7 @@ type
   TSerialClient = class(TThread)
   private
     Serial: TBlockSerial;
-    s: string;
+    s: AnsiString;
     sLastError: string;
     FSafeMode: boolean;
     FOnIncomingMsgEvent: TMsgEvent;
@@ -31,13 +55,13 @@ type
     SoftFlow: Boolean;
     HardFlow: Boolean;
     CalledFromThread: Boolean;
-    sToSend: string;
+    sToSend: AnsiString;
     property SafeMode: boolean read FSafeMode write FSafeMode;
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent write FOnIncomingMsgEvent;
     property OnErrorEvent: TMsgEvent read FOnErrorEvent write FOnErrorEvent;
     property OnConnectEvent: TNotifyEvent read FOnConnectEvent write FOnConnectEvent;
-    function SendString(s: string): Boolean;
-    procedure SendStream(st: TStream; Dest: string);
+    function SendString(s: AnsiString): Boolean;
+    procedure SendStream(st: TStream);
   end;
 
   { TDataPortSerial - serial DataPort }
@@ -75,9 +99,9 @@ type
     function PeekSize(): Cardinal; override;
     class function GetSerialPortNames(): string;
   published
-    { COM port name }
+    { Serial port name (COM1, /dev/ttyS01) }
     property Port: string read FPort write FPort;
-    { COM port baud rate }
+    { Serial port baud rate }
     property BaudRate: Integer read FBaudRate write FBaudRate;
     { Minimum bytes in incoming buffer to trigger OnDataAppear }
     property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes;
@@ -180,7 +204,7 @@ begin
   end;
 end;
 
-function TSerialClient.SendString(s: string): Boolean;
+function TSerialClient.SendString(s: AnsiString): Boolean;
 begin
   Result:=False;
   if not Assigned(Self.Serial) then Exit;
@@ -198,14 +222,26 @@ begin
   Result:=True;
 end;
 
-procedure TSerialClient.SendStream(st: TStream; Dest: string);
+procedure TSerialClient.SendStream(st: TStream);
+var
+  ss: TStringStream;
 begin
   if not Assigned(Self.Serial) then Exit;
-  Serial.SendStreamRaw(st);
-  if Serial.LastError<>0 then
+  if SafeMode then
   begin
-    sLastError:=Serial.LastErrorDesc;
-    Synchronize(SyncProc);
+    ss:=TStringStream.Create('');
+    ss.CopyFrom(st, st.Size);
+    self.sToSend:=ss.DataString;
+    ss.Free();
+  end
+  else
+  begin
+    Serial.SendStreamRaw(st);
+    if Serial.LastError<>0 then
+    begin
+      sLastError:=Serial.LastErrorDesc;
+      Synchronize(SyncProc);
+    end;
   end;
 end;
 
@@ -251,9 +287,7 @@ begin
   if ss='' then ss:=FInitStr else FInitStr:=ss;
   if Assigned(self.SerialClient) then
   begin
-    self.SerialClient.FreeOnTerminate:=True;
-    self.SerialClient.Terminate;
-    //FreeAndNil(self.SerialClient);
+    FreeAndNil(self.SerialClient);
   end;
   Self.SerialClient:=TSerialClient.Create(true);
   Self.SerialClient.OnIncomingMsgEvent:=self.IncomingMsgHandler;
@@ -319,7 +353,7 @@ begin
   end;
   {$ENDIF}
 
-  Self.SerialClient.Start();
+  Self.SerialClient.Suspended:=False;
 
   // don't inherits Open() - OnOpen event will be after successfull connection
 end;
