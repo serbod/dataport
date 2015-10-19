@@ -1,0 +1,8 @@
+LANGUAGE 0, 0
+TDataPortFile           BITMAP "TDataPortFile.bmp"
+TDataPortHttp           BITMAP "TDataPortHttp.bmp"
+TDataPortPipes          BITMAP "TDataPortPipes.bmp"
+TDataPortSerial         BITMAP "TDataPortSerial.bmp"
+TDataPortFtdi           BITMAP "TDataPortFtdi.bmp"
+TDataPortTcp            BITMAP "TDataPortTcp.bmp"
+TDataPortUdp            BITMAP "TDataPortUdp.bmp"

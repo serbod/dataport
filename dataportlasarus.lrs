@@ -13,7 +13,7 @@ LazarusResources.Add('TDataPortPipes','PNG',[
   +'J0'#3#192#186#128''''#3#214'-'#173#171#148'/lr'#160#138#247#159'1'#231#0#0#0
   +#0'IEND'#174'B`'#130
 ]);
-LazarusResources.Add('TDataPortUdpFtdi','PNG',[
+LazarusResources.Add('TDataPortFtdi','PNG',[
   #137'PNG'#13#10#26#10#0#0#0#13'IHDR'#0#0#0#24#0#0#0#24#8#2#0#0#0'o'#21#170#175
   +#0#0#0#1'sRGB'#0#174#206#28#233#0#0#0#4'gAMA'#0#0#177#143#11#252'a'#5#0#0#0#9
   +'pHYs'#0#0#14#195#0#0#14#195#1#199'o'#168'd'#0#0#0#26'tEXtSoftware'#0'Paint.'

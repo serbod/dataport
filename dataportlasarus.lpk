@@ -60,6 +60,7 @@ SOFTWARE."/>
       </Item2>
       <Item3>
         <Filename Value="DataPortFTDI.pas"/>
+        <HasRegisterProc Value="True"/>
         <AddToUsesPkgSection Value="False"/>
         <UnitName Value="DataPortFTDI"/>
       </Item3>
@@ -100,10 +101,10 @@ SOFTWARE."/>
     </Files>
     <RequiredPkgs Count="2">
       <Item1>
-        <PackageName Value="laz_synapse"/>
+        <PackageName Value="LCLBase"/>
       </Item1>
       <Item2>
-        <PackageName Value="LCL"/>
+        <PackageName Value="laz_synapse"/>
       </Item2>
     </RequiredPkgs>
     <UsageOptions>

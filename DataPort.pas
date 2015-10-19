@@ -30,6 +30,7 @@ OnError - Triggered on error, contain error description.
 unit DataPort;
 
 interface
+
 uses Classes;
 
 type
@@ -43,7 +44,7 @@ type
     FOnOpen: TNotifyEvent;
     FOnClose: TNotifyEvent;
     FOnError: TMsgEvent;
-    FActive: Boolean;
+    FActive: boolean;
     procedure FSetActive(Val: boolean); virtual;
   public
     property Active: boolean read FActive write FSetActive;
@@ -61,13 +62,13 @@ type
     { Close dataport }
     procedure Close(); virtual;
     { Write data string to port }
-    function Push(sMsg: AnsiString): Boolean; virtual; abstract;
+    function Push(sMsg: ansistring): boolean; virtual; abstract;
     { Read and remove <size> bytes from incoming buffer. By default, read all data. }
-    function Pull(size: Integer = MaxInt): AnsiString; virtual; abstract;
+    function Pull(size: integer = MaxInt): ansistring; virtual; abstract;
     { Read, but not remove <size> bytes from incoming buffer. }
-    function Peek(size: Integer = MaxInt): AnsiString; virtual; abstract;
+    function Peek(size: integer = MaxInt): ansistring; virtual; abstract;
     { Get number of bytes waiting in incoming buffer }
-    function PeekSize(): Cardinal; virtual; abstract;
+    function PeekSize(): cardinal; virtual; abstract;
   end;
 
 
@@ -77,20 +78,26 @@ implementation
 
 procedure TDataPort.FSetActive(Val: boolean);
 begin
-  if FActive=Val then Exit;
-  if Val then Open() else Close();
+  if FActive = Val then
+    Exit;
+  if Val then
+    Open()
+  else
+    Close();
 end;
 
 procedure TDataPort.Open(InitStr: string);
 begin
-  FActive:=True;
-  if Assigned(OnOpen) then OnOpen(self);
+  FActive := True;
+  if Assigned(OnOpen) then
+    OnOpen(self);
 end;
 
 procedure TDataPort.Close();
 begin
-  FActive:=False;
-  if Assigned(OnClose) then OnClose(self);
+  FActive := False;
+  if Assigned(OnClose) then
+    OnClose(self);
 end;
 
 end.
