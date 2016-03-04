@@ -3,12 +3,12 @@ unit DataPortFTDI;
 {
 Serial communication port based on FTD2XX library.
 
-Sergey Bodrov, 2012-2015
+Sergey Bodrov, 2012-2016
 
 Properties:
-  SerialNumber      - device serial number
-  DeviceDescription - device description string
-  BaudRate          - data excange speed
+  SerialNumber      - FTDI device serial number
+  DeviceDescription - FTDI device description string
+  BaudRate          - data exchange speed (300, 1200, 9600, 115384, 230769, 923076)
   MinDataBytes      - minimal bytes count in buffer for triggering event OnDataAppear
 
 Methods:
@@ -20,8 +20,6 @@ Methods:
   GetFtdiDeviceList() - list of available devices in format <DeviceDescription>:<SerialNumber><LineFeed>
 
 Events:
-  OnConnect - Triggered after sucсessful connection.
-  OnDisconnect - Triggered after disconnection.
   OnModemStatus - Triggered when modem status changes (CTS, DTR, RI, DCD)
 }
 
@@ -131,11 +129,16 @@ type
     //class function GetFtdiDriverVersion(): string;
   published
     property Active;
+    { FTDI device serial number }
     property SerialNumber: string read FFtSerialNumber write FFtSerialNumber;
+    { FTDI device description string }
     property DeviceDescription: string read FFtDeviceDescription
       write FFtDeviceDescription;
+    { data exchange speed (300, 1200, 9600, 115384, 230769, 923076) }
     property BaudRate: integer read FBaudRate write FSetBaudRate;
+    { minimal bytes count in buffer for triggering event OnDataAppear }
     property MinDataBytes: integer read FMinDataBytes write FMinDataBytes;
+    { Triggered when modem status changes (CTS, DTR, RI, DCD) }
     property OnModemStatus: TNotifyEvent read FOnModemStatus write FOnModemStatus;
     property OnDataAppear;
     property OnError;

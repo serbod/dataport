@@ -1,7 +1,7 @@
 {
 Asynchronous wrapper around Synapse TBlockSocket.
 
-Sergey Bodrov, 2012-2015
+Sergey Bodrov, 2012-2016
 
 When using UDP, remember, that it not session protocol, data delivery and correct
 order not guaranteed. To start receive tde data, you must send empty packet to
@@ -18,7 +18,7 @@ Methods:
     RemotePort - remote UPD or TCP port number
 
 Events:
-  OnConnect - Triggered after UDP port init or TCP session establiched.
+  OnOpen - Triggered after UDP port init or TCP session establiched.
 }
 unit DataPortIP;
 
@@ -269,7 +269,11 @@ begin
 
   if Assigned(self.IpClient) then
     FreeAndNil(self.IpClient);
+  {$ifdef FPC}
+  Self.IpClient := TIpClient.Create(True, 4*1024);
+  {$else}
   Self.IpClient := TIpClient.Create(True);
+  {$endif}
   Self.IpClient.OnIncomingMsgEvent := self.IncomingMsgHandler;
   Self.IpClient.OnErrorEvent := Self.ErrorEventHandler;
   Self.IpClient.OnConnect := Self.OnConnectHandler;

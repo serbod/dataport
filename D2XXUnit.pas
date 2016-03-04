@@ -2,7 +2,7 @@ unit D2XXUnit;
 
 interface
 
-Uses Windows, SysUtils, Classes;
+Uses {$IFNDEF FPC}Windows,{$ENDIF} SysUtils, Classes;
 
 Type FT_Result = Integer;
 

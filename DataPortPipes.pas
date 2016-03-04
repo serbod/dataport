@@ -1,7 +1,15 @@
 {
 Data exchange through named pipes
 
-Sergey Bodrov, 2012-2015
+Sergey Bodrov, 2012-2016
+
+Data exchange through named pipes. Pipe name is platform-specific. On Windows,
+'\\.\pipe\' prefix added automaticaly.
+
+Pipe must be already exists, created by Linux 'mkfifo' command or some other program.
+
+Methods:
+  * Open() - open pipe channel with specified name
 }
 unit DataPortPipes;
 
@@ -67,9 +75,9 @@ type
     function Peek(size: integer = MaxInt): ansistring; override;
     function PeekSize(): cardinal; override;
   published
-    { Minimum bytes in incoming buffer to trigger OnDataAppear }
     property InputHandle: THandle read FInputHandle write FInputHandle;
     property OutputHandle: THandle read FOutputHandle write FOutputHandle;
+    { Minimum bytes in incoming buffer to trigger OnDataAppear }
     property MinDataBytes: integer read FMinDataBytes write FMinDataBytes;
     property Active;
     property OnDataAppear;
@@ -260,10 +268,11 @@ begin
   if ss <> '' then
   begin
     s := InitStr;
-    {$IFDEF WINDOWS}
-    s := '\\.\pipe\' + InitStr;
+    {$IFDEF MSWINDOWS}
+    if Pos('\\.\pipe\', FInitStr) = 0 then
+      s := '\\.\pipe\' + FInitStr;
     {$ENDIF}
-    PipesClient.InputHandle := FileCreate(s);
+    PipesClient.InputHandle := FileOpen(s, fmOpenReadWrite or fmShareDenyNone);
     PipesClient.OutputHandle := PipesClient.InputHandle;
   end
   else

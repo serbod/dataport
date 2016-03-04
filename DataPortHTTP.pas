@@ -7,7 +7,7 @@ Large amounts of data received by parts, and OnDataAppear event can be triggered
 If POST method selected, then request parameter mime-type='application/x-www-form-urlencoded' set,
 it allow transfer parameters as web form values.
 
-Sergey Bodrov, 2012-2015
+Sergey Bodrov, 2012-2016
 
 Properties:
   Url - address and params string, URL

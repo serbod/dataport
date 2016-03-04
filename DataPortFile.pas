@@ -1,5 +1,5 @@
 {
-Sergey Bodrov, 2012-2015
+Sergey Bodrov, 2012-2016
 
 Data exchange via file. Suitable for device files (/dev/* under Unix or special
 files in Windows). Conventional data files can be used too.

@@ -2,7 +2,7 @@
 Serial communication port (UART). In Windows it COM-port, real or virtual.
 In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/lock/LCK..ttyS for port locking
 
-Sergey Bodrov, 2012-2015
+Sergey Bodrov, 2012-2016
 
 Properties:
   Port - port name (COM1, /dev/ttyS01)
@@ -22,8 +22,8 @@ Methods:
     HardFlow - Enable CTS/RTS handshake, default 0
 
 Events:
-  OnConnect - Triggered after sucсessful connection.
-  OnDisconnect - Triggered after disconnection.
+  OnOpen - Triggered after sucсessful connection.
+  OnClose - Triggered after disconnection.
 }
 unit DataPortSerial;
 

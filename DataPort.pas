@@ -1,7 +1,7 @@
 {
 DataPort - thread-safe abstract port for data exchange
 
-Sergey Bodrov (serbod@gmail.com) 2012-2015
+Sergey Bodrov (serbod@gmail.com) 2012-2016
 
 TDataPort is abstract component for reading and writing data to some port.
 It don't do anything and needs to be used as property or parent class for new components.
