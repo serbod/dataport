@@ -10,6 +10,7 @@ Properties:
 Active - is port ready for data exchange
 
 Methods:
+Open() - Open data port. If InitStr specified, set parameters from InitStr
 Push() - Send data to port
 Pull() - Get data from port. Data readed from incoming buffer, and removed after that.
   You can specify number of bytes for read. If incoming buffer have less bytes,
@@ -34,7 +35,7 @@ interface
 uses Classes;
 
 type
-  TMsgEvent = procedure(Sender: TObject; AMsg: string) of object;
+  TMsgEvent = procedure(Sender: TObject; const AMsg: string) of object;
 
   { TDataPort }
 
@@ -44,10 +45,10 @@ type
     FOnOpen: TNotifyEvent;
     FOnClose: TNotifyEvent;
     FOnError: TMsgEvent;
-    FActive: boolean;
-    procedure FSetActive(Val: boolean); virtual;
+    FActive: Boolean;
+    procedure SetActive(Val: Boolean); virtual;
   public
-    property Active: boolean read FActive write FSetActive;
+    property Active: Boolean read FActive write SetActive;
     { Occurs when new data appears in incoming buffer }
     property OnDataAppear: TNotifyEvent read FOnDataAppear write FOnDataAppear;
     { Occurs immediately after dataport has been sucsessfully opened }
@@ -57,18 +58,18 @@ type
     { Occurs when dataport operations fails, contain error description }
     property OnError: TMsgEvent read FOnError write FOnError;
     { Open dataport with specified initialization string
-      If InitStr not specified, used default or designed settings }
-    procedure Open(InitStr: string = ''); virtual;
+      If AInitStr not specified, used default or designed settings }
+    procedure Open(const AInitStr: string = ''); virtual;
     { Close dataport }
     procedure Close(); virtual;
     { Write data string to port }
-    function Push(sMsg: ansistring): boolean; virtual; abstract;
+    function Push(const AData: AnsiString): Boolean; virtual; abstract;
     { Read and remove <size> bytes from incoming buffer. By default, read all data. }
-    function Pull(size: integer = MaxInt): ansistring; virtual; abstract;
+    function Pull(size: Integer = MaxInt): AnsiString; virtual; abstract;
     { Read, but not remove <size> bytes from incoming buffer. }
-    function Peek(size: integer = MaxInt): ansistring; virtual; abstract;
+    function Peek(size: Integer = MaxInt): AnsiString; virtual; abstract;
     { Get number of bytes waiting in incoming buffer }
-    function PeekSize(): cardinal; virtual; abstract;
+    function PeekSize(): Cardinal; virtual; abstract;
   end;
 
 
@@ -76,7 +77,7 @@ implementation
 
 { TDataPort }
 
-procedure TDataPort.FSetActive(Val: boolean);
+procedure TDataPort.SetActive(Val: Boolean);
 begin
   if FActive = Val then
     Exit;
@@ -86,7 +87,7 @@ begin
     Close();
 end;
 
-procedure TDataPort.Open(InitStr: string);
+procedure TDataPort.Open(const AInitStr: string);
 begin
   FActive := True;
   if Assigned(OnOpen) then

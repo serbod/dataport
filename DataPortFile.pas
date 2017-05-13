@@ -39,41 +39,41 @@ type
 
   TDataPortFile = class(TDataPort)
   private
-    sReadData: ansistring;
+    sReadData: AnsiString;
     lock: TMultiReadExclusiveWriteSynchronizer;
     FFileHandle: THandle;
     FFileName: string;
-    FFilePos: cardinal;
-    FQueryInterval: cardinal;
-    FMinDataBytes: cardinal;
+    FFilePos: Cardinal;
+    FQueryInterval: Cardinal;
+    FMinDataBytes: Cardinal;
     FKeepOpen: boolean;
     FWriteMode: TFileWriteMode;
-    procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
-    procedure ErrorEventHandler(Sender: TObject; AMsg: string);
-    procedure FReadToSelf();
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
+    procedure ReadToSelf();
   protected
-    procedure FSetActive(Val: boolean); override;
+    procedure SetActive(Val: boolean); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
     { Opens file with given name, "file:" prefix can be used }
-    procedure Open(InitStr: string = ''); override;
+    procedure Open(const AInitStr: string = ''); override;
     procedure Close(); override;
-    function Push(sMsg: ansistring): boolean; override;
-    function Pull(size: integer = MaxInt): ansistring; override;
-    function Peek(size: integer = MaxInt): ansistring; override;
-    function PeekSize(): cardinal; override;
-    function ioctl_cmd(ACmd: string): string;
+    function Push(const AData: AnsiString): boolean; override;
+    function Pull(size: Integer = MaxInt): AnsiString; override;
+    function Peek(size: Integer = MaxInt): AnsiString; override;
+    function PeekSize(): Cardinal; override;
+    function ioctl_cmd(const ACmd: string): string;
   published
     property Active;
     { Path (optionally) and name of file }
     property FileName: string read FFileName write FFileName;
     { Current position in file, bytes from beginning (for conventional files) }
-    property FilePos: cardinal read FFilePos write FFilePos;
+    property FilePos: Cardinal read FFilePos write FFilePos;
     { Interval for checking changes in file, milliseconds }
-    property QueryInterval: cardinal read FQueryInterval write FQueryInterval;
+    property QueryInterval: Cardinal read FQueryInterval write FQueryInterval;
     { Minimum number of bytes in buffer for triggering OnDataAppear event }
-    property MinDataBytes: cardinal read FMinDataBytes write FMinDataBytes;
+    property MinDataBytes: Cardinal read FMinDataBytes write FMinDataBytes;
     { Keep the file open between read and write operations:
       True - file stay opened
       False - file will be opened before every read/write operation and closed after. }
@@ -99,7 +99,7 @@ const
   fsFromBeginning = 0;
   fsFromEnd = 2;
 
-procedure FileTruncate(AFileHandle: cardinal; ASize: cardinal);
+procedure FileTruncate(AFileHandle: Cardinal; ASize: Cardinal);
 begin
   FileSeek(AFileHandle, ASize, fsFromBeginning);
   SetEndOfFile(AFileHandle);
@@ -129,20 +129,20 @@ begin
   FActive := False;
 end;
 
-procedure TDataPortFile.Open(InitStr: string = '');
+procedure TDataPortFile.Open(const AInitStr: string = '');
 var
-  n: integer;
+  n: Integer;
 begin
   // Set filename from init string
-  if InitStr <> '' then
+  if AInitStr <> '' then
   begin
-    n := Pos(':', InitStr);
+    n := Pos(':', AInitStr);
     if n > 0 then
     begin
-      Self.FFileName := Copy(InitStr, n + 1, MaxInt);
+      Self.FFileName := Copy(AInitStr, n + 1, MaxInt);
     end
     else
-      Self.FFileName := InitStr;
+      Self.FFileName := AInitStr;
   end;
 
   if FFileName = '' then
@@ -189,7 +189,7 @@ begin
         FileSeek(FFileHandle, 0, fsFromEnd);
     end;
   end;
-  inherited Open(InitStr);
+  inherited Open(AInitStr);
 end;
 
 procedure TDataPortFile.Close();
@@ -208,7 +208,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortFile.IncomingMsgHandler(Sender: TObject; AMsg: string);
+procedure TDataPortFile.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
 begin
   if AMsg <> '' then
   begin
@@ -217,7 +217,7 @@ begin
       sReadData := sReadData + AMsg;
       lock.EndWrite;
 
-      if Length(sReadData) >= FMinDataBytes then
+      if Cardinal(Length(sReadData)) >= FMinDataBytes then
       begin
         if Assigned(FOnDataAppear) then
           FOnDataAppear(self);
@@ -227,17 +227,17 @@ begin
   end;
 end;
 
-procedure TDataPortFile.ErrorEventHandler(Sender: TObject; AMsg: string);
+procedure TDataPortFile.OnErrorHandler(Sender: TObject; const AMsg: string);
 begin
   if Assigned(Self.FOnError) then
     Self.FOnError(Self, AMsg);
 end;
 
-procedure TDataPortFile.FReadToSelf();
+procedure TDataPortFile.ReadToSelf();
 var
   buf: array [0..1023] of byte;
   s: string;
-  res: integer;
+  res: Integer;
 begin
   if not KeepOpen then
   begin
@@ -273,8 +273,8 @@ begin
   // if write-mode Rewrite then truncate readed data
   if WriteMode = fwmRewrite then
     FileTruncate(FFileHandle, 0)
-  else if WriteMode = fwmAppend then
-    FilePos := FilePos + res;
+  else if (WriteMode = fwmAppend) and (res > 0) then
+    FilePos := FilePos + Cardinal(res);
 
 
   // read data from buf to result
@@ -293,25 +293,33 @@ begin
   end;
 end;
 
-function TDataPortFile.Peek(size: integer = MaxInt): ansistring;
+function TDataPortFile.Peek(size: Integer = MaxInt): AnsiString;
 begin
   lock.BeginRead();
-  FReadToSelf();
-  Result := Copy(sReadData, 1, size);
-  lock.EndRead();
+  try
+    ReadToSelf();
+    Result := Copy(sReadData, 1, size);
+  finally
+    lock.EndRead();
+  end;
 end;
 
-function TDataPortFile.PeekSize(): cardinal;
+function TDataPortFile.PeekSize(): Cardinal;
 begin
   lock.BeginRead();
-  FReadToSelf();
-  Result := cardinal(Length(sReadData));
-  lock.EndRead();
+  try
+    ReadToSelf();
+    Result := Cardinal(Length(sReadData));
+  finally
+    lock.EndRead();
+  end;
 end;
 
-function TDataPortFile.ioctl_cmd(ACmd: string): string;
+function TDataPortFile.ioctl_cmd(const ACmd: string): string;
+{$IFDEF UNIX}
 var
-  iArg, iRes: integer;
+  iArg, iRes: Integer;
+{$ENDIF}
 begin
 {
 * Per POSIX guidelines, this module reserves the LP and lp prefixes
@@ -392,70 +400,80 @@ begin
   end;
 end;
 
-function TDataPortFile.Pull(size: integer = MaxInt): ansistring;
+function TDataPortFile.Pull(size: Integer = MaxInt): AnsiString;
 begin
   Result := '';
-  if not lock.BeginWrite() then
-    Exit;
-  FReadToSelf();
-  Result := Copy(sReadData, 1, size);
-  Delete(sReadData, 1, size);
-  //sReadData:='';
-  lock.EndWrite();
+  if lock.BeginWrite() then
+  begin
+    try
+      ReadToSelf();
+      Result := Copy(sReadData, 1, size);
+      Delete(sReadData, 1, size);
+      //sReadData:='';
+    finally
+      lock.EndWrite();
+    end;
+  end;
 end;
 
-function TDataPortFile.Push(sMsg: ansistring): boolean;
+function TDataPortFile.Push(const AData: AnsiString): boolean;
+var
+  sErrMsg: string;
 begin
   Result := False;
-  if Length(sMsg) = 0 then
+  if Length(AData) = 0 then
     Exit;
-  if not lock.BeginWrite() then
-    Exit;
+  if lock.BeginWrite() then
+  begin
+    sErrMsg := '';
+    try
+      if KeepOpen then
+      begin
+        try
+          if Length(AData) > 0 then
+            FileWrite(FFileHandle, PAnsiChar(AData)^, Length(AData));
+          Result := True;
+        except
+          on E: Exception do
+          begin
+            sErrMsg := E.Message;
+          end;
+        end;
+      end
+      else
+      begin
+        if FFileName = '' then
+          Exit;
+        try
+          //FFileHandle:=FileOpen(FFileName, fmOpenReadWrite or fmShareCompat);
+          FFileHandle := FileOpen(FFileName, fmOpenReadWrite or fmShareDenyWrite);
+          if WriteMode = fwmAppend then
+            FileSeek(FFileHandle, 0, fsFromEnd);
+          if Length(AData) > 0 then
+            FileWrite(FFileHandle, PAnsiChar(AData)^, Length(AData));
+          FileClose(FFileHandle);
+          Result := True;
+        except
+          on E: Exception do
+          begin
+            sErrMsg := E.Message;
+          end;
+        end;
+        FFileHandle := feInvalidHandle;
+      end;
 
-  if KeepOpen then
-  begin
-    try
-      FileWrite(FFileHandle, sMsg[1], Length(sMsg));
-      Result := True;
-    except
-      on E: Exception do
-      begin
-        lock.EndWrite();
-        if Assigned(FOnError) then
-          FOnError(Self, E.Message);
-        Exit;
-      end;
+    finally
+      lock.EndWrite();
     end;
-  end
-  else
-  begin
-    if FFileName = '' then
-      Exit;
-    try
-      //FFileHandle:=FileOpen(FFileName, fmOpenReadWrite or fmShareCompat);
-      FFileHandle := FileOpen(FFileName, fmOpenReadWrite or fmShareDenyWrite);
-      if WriteMode = fwmAppend then
-        FileSeek(FFileHandle, 0, fsFromEnd);
-      FileWrite(FFileHandle, sMsg[1], Length(sMsg));
-      FileClose(FFileHandle);
-      Result := True;
-    except
-      on E: Exception do
-      begin
-        lock.EndWrite();
-        if Assigned(FOnError) then
-          FOnError(Self, E.Message);
-        Exit;
-      end;
-    end;
-    FFileHandle := feInvalidHandle;
+
+    if Assigned(FOnError) and (sErrMsg <> '') then
+      FOnError(Self, sErrMsg);
   end;
-  lock.EndWrite();
 end;
 
-procedure TDataPortFile.FSetActive(Val: boolean);
+procedure TDataPortFile.SetActive(Val: boolean);
 begin
-  inherited FSetActive(Val);
+  inherited SetActive(Val);
   //if FActive then Open();
   //else if Assigned(self.IpClient) then FreeAndNil(self.IpClient);
 end;

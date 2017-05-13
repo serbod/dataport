@@ -266,6 +266,7 @@ const
   FT_DATA_BITS_8 = 8;
   // Stop Bits Selection
   FT_STOP_BITS_1 = 0;
+  FT_STOP_BITS_15 = 1;
   FT_STOP_BITS_2 = 2;
   // Parity Selection
   FT_PARITY_NONE = 0;
@@ -290,6 +291,17 @@ const
   RI = $40;
   DCD = $80;
 
+  // device chip types
+  FT_DEVICE_232BM = 0;
+  FT_DEVICE_232AM = 1;
+  FT_DEVICE_100AX = 2;
+  FT_DEVICE_UNKNOWN = 3;
+  FT_DEVICE_2232C = 4;
+  FT_DEVICE_232R = 5;
+  FT_DEVICE_2232H = 6;
+  FT_DEVICE_4232H = 7;
+  FT_DEVICE_232H = 8;
+  FT_DEVICE_X_SERIES = 9;
 
   // IO Buffer Sizes
   FT_In_Buffer_Size = $10000;    // 64k
@@ -386,7 +398,6 @@ var
 implementation
 
 var
-  LibLoaded: Boolean;
 {$IFDEF FPC}
   Libhandle: TLibHandle;
 {$ELSE}
@@ -398,7 +409,6 @@ begin
   Libhandle := LoadLibrary(FT_DLL_Name);
   if Libhandle <> 0 then
   begin
-    LibLoaded := True;
     FT_ListDevices := GetProcAddress(Libhandle, 'FT_ListDevices');
     FT_GetNumDevices := GetProcAddress(Libhandle, 'FT_ListDevices');
     FT_Open := GetProcAddress(Libhandle, 'FT_Open');
@@ -460,15 +470,15 @@ begin
   begin
     FreeLibrary(Libhandle);
     Libhandle := 0;
-    LibLoaded := False;
   end;
 end;
 
 
-procedure FT_Error_Report(ErrStr: string; PortStatus: integer);
+function FT_Error_Report(ErrStr: string; PortStatus: Integer): string;
 var
   Str: string;
 begin
+  Result := '';
   if not FT_Enable_Error_Report then
   begin
     Exit;
@@ -548,12 +558,13 @@ begin
     end;
   end;
   //MessageDlg(Str, mtError, [mbOk], 0);
+  Result := Str;
 end;
 
 
 function GetDeviceString: string;
 var
-  I: integer;
+  I: Integer;
 begin
   Result := '';
   I := 1;
@@ -568,7 +579,7 @@ end;
 
 procedure SetDeviceString(S: string);
 var
-  I, L: integer;
+  I, L: Integer;
 begin
   FT_Device_String_Buffer[1] := Chr(0);
   L := Length(S);
@@ -697,13 +708,13 @@ begin
 end;
 
 
-function Read_USB_Device_Buffer(Read_Count: integer): integer;
+function Read_USB_Device_Buffer(Read_Count: Integer): Integer;
   // Reads Read_Count Bytes (or less) from the USB device to the FT_In_Buffer
   // Function returns the number of bytes actually received  which may range from zero
   // to the actual number of bytes requested, depending on how many have been received
   // at the time of the request + the read timeout value.
 var
-  Read_Result: integer;
+  Read_Result: Integer;
 begin
 
   if (read_count = 1) then
@@ -719,12 +730,12 @@ begin
 end;
 
 
-function Write_USB_Device_Buffer(Write_Count: integer): integer;
+function Write_USB_Device_Buffer(Write_Count: Integer): Integer;
   // Writes Write_Count Bytes from FT_Out_Buffer to the USB device
   // Function returns the number of bytes actually sent
   // In this example, Write_Count should be 32k bytes max
 var
-  Write_Result: integer;
+  Write_Result: Integer;
 begin
   FT_IO_Status := FT_Write(FT_Handle, @FT_Out_Buffer, Write_Count, @Write_Result);
   if FT_IO_Status <> FT_OK then
@@ -1387,7 +1398,6 @@ end;
 
 {$IFNDEF S}
 initialization
-  LibLoaded := False;
   Libhandle := 0;
   LoadLib();
 

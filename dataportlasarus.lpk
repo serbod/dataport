@@ -29,7 +29,7 @@
 - named pipes"/>
     <License Value="The MIT License (MIT)
 
-Copyright (c) 2012-2015 Sergey Bodrov
+Copyright (c) 2012-2017 Sergey Bodrov
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the &quot;Software&quot;), to deal
@@ -48,8 +48,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."/>
-    <Version Major="1" Release="1"/>
-    <Files Count="9">
+    <Version Major="1" Release="2"/>
+    <Files Count="10">
       <Item1>
         <Filename Value="dataportlasarus.lrs"/>
         <Type Value="LRS"/>
@@ -59,45 +59,49 @@ SOFTWARE."/>
         <UnitName Value="DataPort"/>
       </Item2>
       <Item3>
-        <Filename Value="DataPortFTDI.pas"/>
-        <HasRegisterProc Value="True"/>
-        <AddToUsesPkgSection Value="False"/>
-        <UnitName Value="DataPortFTDI"/>
+        <Filename Value="DataPortUART.pas"/>
+        <UnitName Value="DataPortUART"/>
       </Item3>
       <Item4>
-        <Filename Value="DataPortHTTP.pas"/>
-        <HasRegisterProc Value="True"/>
-        <AddToUsesPkgSection Value="False"/>
-        <UnitName Value="DataPortHTTP"/>
-      </Item4>
-      <Item5>
-        <Filename Value="DataPortIP.pas"/>
-        <HasRegisterProc Value="True"/>
-        <AddToUsesPkgSection Value="False"/>
-        <UnitName Value="DataPortIP"/>
-      </Item5>
-      <Item6>
         <Filename Value="DataPortSerial.pas"/>
         <HasRegisterProc Value="True"/>
         <AddToUsesPkgSection Value="False"/>
         <UnitName Value="DataPortSerial"/>
+      </Item4>
+      <Item5>
+        <Filename Value="DataPortFTDI.pas"/>
+        <HasRegisterProc Value="True"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="DataPortFTDI"/>
+      </Item5>
+      <Item6>
+        <Filename Value="DataPortHTTP.pas"/>
+        <HasRegisterProc Value="True"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="DataPortHTTP"/>
       </Item6>
       <Item7>
+        <Filename Value="DataPortIP.pas"/>
+        <HasRegisterProc Value="True"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="DataPortIP"/>
+      </Item7>
+      <Item8>
         <Filename Value="DataPortFile.pas"/>
         <HasRegisterProc Value="True"/>
         <AddToUsesPkgSection Value="False"/>
         <UnitName Value="DataPortFile"/>
-      </Item7>
-      <Item8>
+      </Item8>
+      <Item9>
         <Filename Value="DataPortPipes.pas"/>
         <HasRegisterProc Value="True"/>
         <AddToUsesPkgSection Value="False"/>
         <UnitName Value="DataPortPipes"/>
-      </Item8>
-      <Item9>
+      </Item9>
+      <Item10>
         <Filename Value="dataportlasarus_reg.pas"/>
         <UnitName Value="DataPortLasarus_reg"/>
-      </Item9>
+      </Item10>
     </Files>
     <RequiredPkgs Count="2">
       <Item1>

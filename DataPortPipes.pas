@@ -23,7 +23,7 @@ type
   private
     FInputPipeStream: TInputPipeStream;
     FOutputPipeStream: TOutputPipeStream;
-    s: ansistring;
+    s: AnsiString;
     sLastError: string;
     FSafeMode: boolean;
     FInputHandle: THandle;
@@ -38,7 +38,7 @@ type
   public
     InitStr: string;
     CalledFromThread: boolean;
-    sToSend: ansistring;
+    sToSend: AnsiString;
     property SafeMode: boolean read FSafeMode write FSafeMode;
     property InputHandle: THandle read FInputHandle write FInputHandle;
     property OutputHandle: THandle read FOutputHandle write FOutputHandle;
@@ -46,7 +46,7 @@ type
       write FOnIncomingMsgEvent;
     property OnErrorEvent: TMsgEvent read FOnErrorEvent write FOnErrorEvent;
     property OnConnectEvent: TNotifyEvent read FOnConnectEvent write FOnConnectEvent;
-    function SendString(s: ansistring): boolean;
+    function SendString(const s: AnsiString): boolean;
     procedure SendStream(st: TStream);
   end;
 
@@ -54,31 +54,31 @@ type
   TDataPortPipes = class(TDataPort)
   private
     //slReadData: TStringList; // for storing every incoming data packet separately
-    sReadData: ansistring;
+    sReadData: AnsiString;
     lock: TMultiReadExclusiveWriteSynchronizer;
     FInitStr: string;
-    FMinDataBytes: integer;
+    FMinDataBytes: Integer;
     FInputHandle: THandle;
     FOutputHandle: THandle;
-    procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
-    procedure ErrorEventHandler(Sender: TObject; AMsg: string);
-    procedure ConnectHandler(Sender: TObject);
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
+    procedure OnConnectHandler(Sender: TObject);
   public
     PipesClient: TPipesClient;
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
     { Open pipe, InitStr = pipe name }
-    procedure Open(InitStr: string = ''); override;
+    procedure Open(const AInitStr: string = ''); override;
     procedure Close(); override;
-    function Push(sMsg: ansistring): boolean; override;
-    function Pull(size: integer = MaxInt): ansistring; override;
-    function Peek(size: integer = MaxInt): ansistring; override;
-    function PeekSize(): cardinal; override;
+    function Push(const AData: AnsiString): boolean; override;
+    function Pull(size: Integer = MaxInt): AnsiString; override;
+    function Peek(size: Integer = MaxInt): AnsiString; override;
+    function PeekSize(): Cardinal; override;
   published
     property InputHandle: THandle read FInputHandle write FInputHandle;
     property OutputHandle: THandle read FOutputHandle write FOutputHandle;
     { Minimum bytes in incoming buffer to trigger OnDataAppear }
-    property MinDataBytes: integer read FMinDataBytes write FMinDataBytes;
+    property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes;
     property Active;
     property OnDataAppear;
     property OnError;
@@ -131,8 +131,8 @@ end;
 procedure TPipesClient.Execute();
 var
   buf: array[0..1023] of byte;
-  n: integer;
-  ss: ansistring;
+  n: Integer;
+  ss: AnsiString;
 begin
   sLastError := '';
 
@@ -177,7 +177,7 @@ begin
   end;
 end;
 
-function TPipesClient.SendString(s: ansistring): boolean;
+function TPipesClient.SendString(const s: AnsiString): boolean;
 begin
   Result := False;
   if not Assigned(Self.FOutputPipeStream) then
@@ -230,7 +230,7 @@ end;
 
 function GetFirstWord(var s: string; delimiter: string = ' '): string;
 var
-  i: integer;
+  i: Integer;
 begin
   Result := '';
   i := Pos(delimiter, s);
@@ -246,11 +246,11 @@ begin
   end;
 end;
 
-procedure TDataPortPipes.Open(InitStr: string = '');
+procedure TDataPortPipes.Open(const AInitStr: string = '');
 var
   s, ss: string;
 begin
-  ss := InitStr;
+  ss := AInitStr;
   if ss = '' then
     ss := FInitStr
   else
@@ -260,14 +260,14 @@ begin
     FreeAndNil(self.PipesClient);
   end;
   Self.PipesClient := TPipesClient.Create(True);
-  Self.PipesClient.OnIncomingMsgEvent := self.IncomingMsgHandler;
-  Self.PipesClient.OnErrorEvent := self.ErrorEventHandler;
-  Self.PipesClient.OnConnectEvent := self.ConnectHandler;
+  Self.PipesClient.OnIncomingMsgEvent := self.OnIncomingMsgHandler;
+  Self.PipesClient.OnErrorEvent := self.OnErrorHandler;
+  Self.PipesClient.OnConnectEvent := self.OnConnectHandler;
   Self.PipesClient.SafeMode := True;
 
   if ss <> '' then
   begin
-    s := InitStr;
+    s := AInitStr;
     {$IFDEF MSWINDOWS}
     if Pos('\\.\pipe\', FInitStr) = 0 then
       s := '\\.\pipe\' + FInitStr;
@@ -311,7 +311,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortPipes.IncomingMsgHandler(Sender: TObject; AMsg: string);
+procedure TDataPortPipes.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
 begin
   if AMsg <> '' then
   begin
@@ -323,54 +323,58 @@ begin
       if Assigned(FOnDataAppear) then
         FOnDataAppear(self);
     end;
-
   end;
 end;
 
-procedure TDataPortPipes.ErrorEventHandler(Sender: TObject; AMsg: string);
+procedure TDataPortPipes.OnErrorHandler(Sender: TObject; const AMsg: string);
 begin
   if Assigned(Self.FOnError) then
     Self.FOnError(Self, AMsg);
   self.FActive := False;
 end;
 
-function TDataPortPipes.Peek(size: integer = MaxInt): ansistring;
+function TDataPortPipes.Peek(size: Integer = MaxInt): AnsiString;
 begin
   lock.BeginRead();
   Result := Copy(sReadData, 1, size);
   lock.EndRead();
 end;
 
-function TDataPortPipes.PeekSize(): cardinal;
+function TDataPortPipes.PeekSize(): Cardinal;
 begin
   lock.BeginRead();
-  Result := cardinal(Length(sReadData));
+  Result := Cardinal(Length(sReadData));
   lock.EndRead();
 end;
 
-function TDataPortPipes.Pull(size: integer = MaxInt): ansistring;
+function TDataPortPipes.Pull(size: Integer = MaxInt): AnsiString;
 begin
   Result := '';
-  if not lock.BeginWrite() then
-    Exit;
-  Result := Copy(sReadData, 1, size);
-  Delete(sReadData, 1, size);
-  lock.EndWrite();
-end;
-
-function TDataPortPipes.Push(sMsg: ansistring): boolean;
-begin
-  Result := False;
-  if not Assigned(self.PipesClient) then
-    Exit;
   if lock.BeginWrite() then
   begin
-    self.PipesClient.SendString(sMsg);
-    lock.EndWrite();
+    try
+      Result := Copy(sReadData, 1, size);
+      Delete(sReadData, 1, size);
+    finally
+      lock.EndWrite();
+    end;
   end;
 end;
 
-procedure TDataPortPipes.ConnectHandler(Sender: TObject);
+function TDataPortPipes.Push(const AData: AnsiString): boolean;
+begin
+  Result := False;
+  if Assigned(self.PipesClient) and lock.BeginWrite() then
+  begin
+    try
+      Result := self.PipesClient.SendString(AData);
+    finally
+      lock.EndWrite();
+    end;
+  end;
+end;
+
+procedure TDataPortPipes.OnConnectHandler(Sender: TObject);
 begin
   self.FActive := True;
   if Assigned(OnOpen) then

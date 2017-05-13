@@ -46,10 +46,9 @@ type
     url: string;
     method: THttpMethods;
     Data: string;
-    property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
-      write FOnIncomingMsgEvent;
+    property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent write FOnIncomingMsgEvent;
     property OnErrorEvent: TMsgEvent read FOnErrorEvent write FOnErrorEvent;
-    function SendString(s: string): boolean;
+    function SendString(s: string): Boolean;
     procedure SendStream(st: TStream; Dest: string);
   end;
 
@@ -58,16 +57,16 @@ type
   TDataPortHTTP = class(TDataPort)
   private
     //slReadData: TStringList; // for storing every incoming data packet separately
-    sReadData: ansistring;
+    sReadData: AnsiString;
     lock: TMultiReadExclusiveWriteSynchronizer;
     HttpClient: THttpClient;
     HttpSend: THTTPSend;
     FUrl: string;
     FParams: TStrings;
     FMethod: THttpMethods;
-    FSafeMode: boolean;
-    procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
-    procedure ErrorEventHandler(Sender: TObject; AMsg: string);
+    FSafeMode: Boolean;
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
   protected
     procedure FSetParams(Val: TStrings);
   public
@@ -78,12 +77,12 @@ type
       RemoteHost - IP-address or name of remote host
       RemotePort - remote UPD or TCP port number
       Path - path to requested resource }
-    procedure Open(InitStr: string = ''); override;
+    procedure Open(const AInitStr: string = ''); override;
     procedure Close(); override;
-    function Push(sMsg: ansistring): boolean; override;
-    function Pull(size: integer = MaxInt): ansistring; override;
-    function Peek(size: integer = MaxInt): ansistring; override;
-    function PeekSize(): cardinal; override;
+    function Push(const AData: AnsiString): Boolean; override;
+    function Pull(size: Integer = MaxInt): AnsiString; override;
+    function Peek(size: Integer = MaxInt): AnsiString; override;
+    function PeekSize(): Cardinal; override;
   published
     { address and params string, URL }
     property Url: string read FUrl write FUrl;
@@ -96,7 +95,7 @@ type
     { Use this property if you encounter troubles:
       True - Non-threaded synchronous behavior
       False - Asynchronous behavior }
-    property SafeMode: boolean read FSafeMode write FSafeMode;
+    property SafeMode: Boolean read FSafeMode write FSafeMode;
     property Active;
     property OnDataAppear;
     property OnError;
@@ -134,7 +133,7 @@ end;
 
 procedure THttpClient.Execute();
 var
-  bResult: boolean;
+  bResult: Boolean;
   sMethod: string;
 begin
   Self.HttpSend := THTTPSend.Create();
@@ -179,7 +178,7 @@ begin
   Terminate();
 end;
 
-function THttpClient.SendString(s: string): boolean;
+function THttpClient.SendString(s: string): Boolean;
 begin
   Result := False;
   if Assigned(Self.HttpSend) then
@@ -213,12 +212,12 @@ begin
   Self.HttpClient := nil;
 end;
 
-procedure TDataPortHTTP.Open(InitStr: string);
+procedure TDataPortHTTP.Open(const AInitStr: string);
 begin
   if Assigned(self.HttpClient) then
     FreeAndNil(self.HttpClient);
-  if Length(InitStr) > 0 then
-    Url := InitStr;
+  if Length(AInitStr) > 0 then
+    Url := AInitStr;
   if Length(Url) = 0 then
   begin
     if Assigned(Self.FOnError) then
@@ -229,13 +228,13 @@ begin
   begin
     // threaded request
     Self.HttpClient := THttpClient.Create(True);
-    Self.HttpClient.OnIncomingMsgEvent := self.IncomingMsgHandler;
-    Self.HttpClient.OnErrorEvent := Self.ErrorEventHandler;
+    Self.HttpClient.OnIncomingMsgEvent := self.OnIncomingMsgHandler;
+    Self.HttpClient.OnErrorEvent := Self.OnErrorHandler;
     Self.HttpClient.url := Url;
     Self.HttpClient.FreeOnTerminate := True;
     Self.HttpClient.Suspended := False;
   end;
-  inherited Open(InitStr);
+  inherited Open(AInitStr);
 end;
 
 procedure TDataPortHTTP.Close();
@@ -264,7 +263,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortHTTP.IncomingMsgHandler(Sender: TObject; AMsg: string);
+procedure TDataPortHTTP.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
 begin
   if AMsg <> '' then
   begin
@@ -283,7 +282,7 @@ begin
   end;
 end;
 
-procedure TDataPortHTTP.ErrorEventHandler(Sender: TObject; AMsg: string);
+procedure TDataPortHTTP.OnErrorHandler(Sender: TObject; const AMsg: string);
 begin
   if Assigned(Self.FOnError) then
     Self.FOnError(Self, AMsg);
@@ -310,21 +309,21 @@ begin
 end;
 }
 
-function TDataPortHTTP.Peek(size: integer = MaxInt): ansistring;
+function TDataPortHTTP.Peek(size: Integer = MaxInt): AnsiString;
 begin
   lock.BeginRead();
   Result := Copy(sReadData, 1, size);
   lock.EndRead();
 end;
 
-function TDataPortHTTP.PeekSize(): cardinal;
+function TDataPortHTTP.PeekSize(): Cardinal;
   //var i: Integer;
 begin
   //Result:=0;
   lock.BeginRead();
   //// Length of all strings
   //for i:=0 to slReadData.Count-1 do Result:=Result+Cardinal(Length(slReadData[i]));
-  Result := cardinal(Length(sReadData));
+  Result := Cardinal(Length(sReadData));
   lock.EndRead();
 end;
 
@@ -356,7 +355,7 @@ begin
 end;
 }
 
-function TDataPortHTTP.Pull(size: integer = MaxInt): ansistring;
+function TDataPortHTTP.Pull(size: Integer = MaxInt): AnsiString;
 begin
   Result := '';
   if not lock.BeginWrite() then
@@ -367,17 +366,17 @@ begin
   lock.EndWrite();
 end;
 
-function TDataPortHTTP.Push(sMsg: ansistring): boolean;
+function TDataPortHTTP.Push(const AData: AnsiString): Boolean;
 var
-  i: integer;
+  i: Integer;
   sUrl, sParams, sData: string;
   sMethod, sLastError: string;
-  bResult: boolean;
+  bResult: Boolean;
 begin
   Result := False;
 
   sUrl := url;
-  sData := sMsg;
+  sData := AData;
   sParams := '';
   // encode params into string
   for i := 0 to FParams.Count - 1 do
@@ -396,7 +395,7 @@ begin
   end
   else if method = httpPost then
   begin
-    sData := sParams + sMsg;
+    sData := sParams + AData;
   end;
 
   if self.SafeMode then
@@ -469,12 +468,12 @@ begin
         if FParams.Count > 0 then
         begin
           HttpClient.url := HttpClient.url + '?' + sParams;
-          self.HttpClient.SendString(sMsg);
+          self.HttpClient.SendString(AData);
         end;
       end
       else if method = httpPost then
       begin
-        HttpClient.SendString(sParams + sMsg);
+        HttpClient.SendString(sParams + AData);
       end;
       Result := True;
       lock.EndWrite();

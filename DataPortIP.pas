@@ -58,13 +58,13 @@ type
   TDataPortIP = class(TDataPort)
   private
     //slReadData: TStringList; // for storing every incoming data packet separately
-    sReadData: ansistring;
+    sReadData: AnsiString;
     lock: TMultiReadExclusiveWriteSynchronizer;
     IpClient: TIpClient;
     FRemoteHost: string;
     FRemotePort: string;
-    procedure IncomingMsgHandler(Sender: TObject; AMsg: string);
-    procedure ErrorEventHandler(Sender: TObject; AMsg: string);
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
     procedure OnConnectHandler(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
@@ -73,12 +73,12 @@ type
       InitStr = 'RemoteHost:RemotePort'
       RemoteHost - IP-address or name of remote host
       RemotePort - remote UPD or TCP port number }
-    procedure Open(InitStr: string = ''); override;
+    procedure Open(const AInitStr: string = ''); override;
     procedure Close(); override;
-    function Push(sMsg: ansistring): boolean; override;
-    function Pull(size: integer = MaxInt): ansistring; override;
-    function Peek(size: integer = MaxInt): ansistring; override;
-    function PeekSize(): cardinal; override;
+    function Push(const AData: AnsiString): boolean; override;
+    function Pull(size: integer = MaxInt): AnsiString; override;
+    function Peek(size: integer = MaxInt): AnsiString; override;
+    function PeekSize(): Cardinal; override;
   published
     { IP-address or name of remote host }
     property RemoteHost: string read FRemoteHost write FRemoteHost;
@@ -94,12 +94,12 @@ type
 
   TDataPortTCP = class(TDataPortIP)
   public
-    procedure Open(InitStr: string = ''); override;
+    procedure Open(const AInitStr: string = ''); override;
   end;
 
   TDataPortUDP = class(TDataPortIP)
   public
-    procedure Open(InitStr: string = ''); override;
+    procedure Open(const AInitStr: string = ''); override;
   end;
 
 procedure Register;
@@ -250,21 +250,21 @@ begin
   Self.IpClient := nil;
 end;
 
-procedure TDataPortIP.Open(InitStr: string = '');
+procedure TDataPortIP.Open(const AInitStr: string = '');
 var
   n: integer;
 begin
   // Set host and port from init string
-  if InitStr <> '' then
+  if AInitStr <> '' then
   begin
-    n := Pos(':', InitStr);
+    n := Pos(':', AInitStr);
     if n > 0 then
     begin
-      Self.FRemoteHost := Copy(InitStr, 1, n - 1);
-      Self.FRemotePort := Copy(InitStr, n + 1, MaxInt);
+      Self.FRemoteHost := Copy(AInitStr, 1, n - 1);
+      Self.FRemotePort := Copy(AInitStr, n + 1, MaxInt);
     end
     else
-      Self.FRemoteHost := InitStr;
+      Self.FRemoteHost := AInitStr;
   end;
 
   if Assigned(self.IpClient) then
@@ -274,8 +274,8 @@ begin
   {$else}
   Self.IpClient := TIpClient.Create(True);
   {$endif}
-  Self.IpClient.OnIncomingMsgEvent := self.IncomingMsgHandler;
-  Self.IpClient.OnErrorEvent := Self.ErrorEventHandler;
+  Self.IpClient.OnIncomingMsgEvent := Self.OnIncomingMsgHandler;
+  Self.IpClient.OnErrorEvent := Self.OnErrorHandler;
   Self.IpClient.OnConnect := Self.OnConnectHandler;
   Self.IpClient.remoteHost := Self.FRemoteHost;
   Self.IpClient.remotePort := Self.FRemotePort;
@@ -305,7 +305,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortIP.IncomingMsgHandler(Sender: TObject; AMsg: string);
+procedure TDataPortIP.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
 begin
   if AMsg <> '' then
   begin
@@ -317,65 +317,69 @@ begin
       if Assigned(FOnDataAppear) then
         FOnDataAppear(self);
     end;
-
   end;
 end;
 
-procedure TDataPortIP.ErrorEventHandler(Sender: TObject; AMsg: string);
+procedure TDataPortIP.OnErrorHandler(Sender: TObject; const AMsg: string);
 begin
   if Assigned(Self.FOnError) then
     Self.FOnError(Self, AMsg);
   self.FActive := False;
 end;
 
-function TDataPortIP.Peek(size: integer = MaxInt): ansistring;
+function TDataPortIP.Peek(size: integer = MaxInt): AnsiString;
 begin
   lock.BeginRead();
   Result := Copy(sReadData, 1, size);
   lock.EndRead();
 end;
 
-function TDataPortIP.PeekSize(): cardinal;
+function TDataPortIP.PeekSize(): Cardinal;
 begin
   lock.BeginRead();
-  Result := cardinal(Length(sReadData));
+  Result := Cardinal(Length(sReadData));
   lock.EndRead();
 end;
 
-function TDataPortIP.Pull(size: integer = MaxInt): ansistring;
+function TDataPortIP.Pull(size: integer = MaxInt): AnsiString;
 begin
   Result := '';
-  if not lock.BeginWrite() then
-    Exit;
-  Result := Copy(sReadData, 1, size);
-  Delete(sReadData, 1, size);
-  lock.EndWrite();
+  if lock.BeginWrite() then
+  begin
+    try
+      Result := Copy(sReadData, 1, size);
+      Delete(sReadData, 1, size);
+    finally
+      lock.EndWrite();
+    end;
+  end;
 end;
 
-function TDataPortIP.Push(sMsg: ansistring): boolean;
+function TDataPortIP.Push(const AData: AnsiString): boolean;
 begin
   Result := False;
-  if not lock.BeginWrite() then
-    Exit;
-  if Assigned(self.IpClient) then
+  if Assigned(self.IpClient) and lock.BeginWrite() then
   begin
-    self.IpClient.SendString(sMsg);
-    Result := True;
+    try
+      self.IpClient.SendString(AData);
+      Result := True;
+    finally
+      lock.EndWrite();
+    end;
   end;
-  lock.EndWrite();
 end;
 
-procedure TDataPortTCP.Open(InitStr: string = '');
+procedure TDataPortTCP.Open(const AInitStr: string = '');
 begin
-  inherited Open(InitStr);
+  inherited Open(AInitStr);
   Self.IpClient.protocol := ippTCP;
   Self.IpClient.Suspended := False;
   Self.FActive := True;
 end;
 
-procedure TDataPortUDP.Open(InitStr: string = '');
+procedure TDataPortUDP.Open(const AInitStr: string = '');
 begin
-  inherited Open(InitStr);
+  inherited Open(AInitStr);
   Self.IpClient.protocol := ippUDP;
   Self.IpClient.Suspended := False;
   Self.FActive := True;
