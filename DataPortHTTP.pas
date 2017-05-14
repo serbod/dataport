@@ -434,9 +434,12 @@ begin
     begin
       if lock.BeginWrite() then
       begin
-        sReadData := sReadData + synautil.ReadStrFromStream(Self.HttpSend.Document,
-          Self.HttpSend.Document.Size);
-        lock.EndWrite();
+        try
+          sReadData := sReadData + synautil.ReadStrFromStream(Self.HttpSend.Document,
+            Self.HttpSend.Document.Size);
+        finally
+          lock.EndWrite();
+        end;
       end;
       if Assigned(OnDataAppear) then
         OnDataAppear(self);
@@ -453,30 +456,34 @@ begin
       Exit;
     if lock.BeginWrite() then
     begin
-      HttpClient.url := FUrl;
-      HttpClient.method := FMethod;
-      sParams := '';
-      for i := 0 to FParams.Count - 1 do
-      begin
-        if sParams <> '' then
-          sParams := sParams + '&';
-        sParams := sParams + synacode.EncodeURL(FParams[i]);
-      end;
-
-      if method = httpGet then
-      begin
-        if FParams.Count > 0 then
+      try
+        HttpClient.url := FUrl;
+        HttpClient.method := FMethod;
+        sParams := '';
+        for i := 0 to FParams.Count - 1 do
         begin
-          HttpClient.url := HttpClient.url + '?' + sParams;
-          self.HttpClient.SendString(AData);
+          if sParams <> '' then
+            sParams := sParams + '&';
+          sParams := sParams + synacode.EncodeURL(FParams[i]);
         end;
-      end
-      else if method = httpPost then
-      begin
-        HttpClient.SendString(sParams + AData);
+
+        if method = httpGet then
+        begin
+          if FParams.Count > 0 then
+          begin
+            HttpClient.url := HttpClient.url + '?' + sParams;
+            self.HttpClient.SendString(AData);
+          end;
+        end
+        else if method = httpPost then
+        begin
+          HttpClient.SendString(sParams + AData);
+        end;
+        Result := True;
+
+      finally
+        lock.EndWrite();
       end;
-      Result := True;
-      lock.EndWrite();
     end;
   end;
 end;
