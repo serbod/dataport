@@ -61,7 +61,6 @@ type
     procedure SyncProc();
     procedure SyncProcOnConnect();
     function SendStringInternal(AData: string): Integer;
-    procedure ClosePort();
     function CheckFtError(APortStatus: FT_Result; AFunctionName: string = ''): Boolean;
     function GetFtErrorDescription(APortStatus: FT_Result): string;
   protected
@@ -217,12 +216,6 @@ var
   FtDeviceStringBuffer: array [1..50] of AnsiChar;
   ReadCount, ReadResult, WriteResult: Integer;
   ReadTimeout, WriteTimeout: LongWord;
-
-  procedure ClosePortAndExit();
-  begin
-    PortStatus := FT_Close(FFtHandle);
-    Exit;
-  end;
 
 begin
   // Default settings
@@ -393,7 +386,6 @@ function TFtdiClient.SendString(const AData: AnsiString): Boolean;
 var
   WriteResult: Integer;
 begin
-  Result := False;
   if SafeMode then
   begin
     self.sToSend := self.sToSend + AData;
@@ -478,11 +470,6 @@ begin
   CalledFromThread := False;
 end;
 
-
-procedure TFtdiClient.ClosePort();
-begin
-  FT_Close(FFtHandle);
-end;
 
 { TDataPortFtdi }
 

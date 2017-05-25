@@ -3,7 +3,7 @@ package DataPortD7;
 {$R *.res}
 {$R 'DataPortIcons.bcr'}
 {$ALIGN 8}
-{$ASSERTIONS ON}
+{$ASSERTIONS OFF}
 {$BOOLEVAL OFF}
 {$DEBUGINFO ON}
 {$EXTENDEDSYNTAX ON}
@@ -34,6 +34,7 @@ contains
   DataPortIP in 'DataPortIP.pas',
   DataPortFile in 'DataPortFile.pas',
   DataPortHTTP in 'DataPortHTTP.pas',
+  DataPortUART in 'DataPortUART.pas',
   DataPortSerial in 'DataPortSerial.pas',
   DataPortFTDI in 'DataPortFTDI.pas',
   DataPort in 'DataPort.pas',

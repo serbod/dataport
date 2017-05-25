@@ -184,7 +184,7 @@ begin
   if Assigned(Self.HttpSend) then
     Exit;
   self.Data := s;
-  Self.Start();
+  self.Suspended := False;
   Result := True;
 end;
 
@@ -193,7 +193,7 @@ begin
   if Assigned(Self.HttpSend) then
     Exit;
   self.Data := synautil.ReadStrFromStream(st, st.Size);
-  Self.Start();
+  self.Suspended := False;
 end;
 
 
@@ -413,8 +413,7 @@ begin
     try
       bResult := self.HttpSend.HTTPMethod(sMethod, sUrl);
     except
-      if Assigned(OnError) then
-        OnError(self, 'Cannot connect');
+      bResult := False;
     end;
 
     if not bResult then
