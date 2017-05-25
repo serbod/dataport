@@ -286,10 +286,10 @@ const
   FT_EVENT_RXCHAR = 1;
   FT_EVENT_MODEM_STATUS = 2;
   // Modem Status
-  CTS = $10;
-  DSR = $20;
-  RI = $40;
-  DCD = $80;
+  FT_CTS = $10;
+  FT_DSR = $20;
+  FT_RI  = $40;
+  FT_DCD = $80;
 
   // device chip types
   FT_DEVICE_232BM = 0;

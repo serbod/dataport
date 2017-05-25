@@ -7,6 +7,12 @@ Sergey Bodrov, 2012-2017
 Properties:
   Port - port name (COM1, /dev/ttyS01)
   BaudRate - data excange speed
+  DataBits - default 8  (5 for Baudot code, 7 for true ASCII)
+  Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
+  StopBits - (stb1, stb15, stb2), default stb1
+  SoftFlow - Software flow control, enable XON/XOFF handshake, default 1
+  HardFlow - Hardware flow control, not supported by many USB adapters.
+             Enable CTS/RTS handshake, default 0
   MinDataBytes - minimal bytes count in buffer for triggering event OnDataAppear
 
 Methods:
@@ -24,6 +30,10 @@ Methods:
 Events:
   OnOpen - Triggered after sucсessful connection.
   OnClose - Triggered after disconnection.
+
+Roles:
+  Data Terminal Equipment (DTE) - computer terminal
+  Data Circuit-terminating Equipment (DCE) - modem, peripreral device
 }
 unit DataPortUART;
 
@@ -34,6 +44,22 @@ uses
 
 type
   TSerialStopBits = (stb1, stb15, stb2);
+
+  TModemStatus = record
+    { RTS (Request to send) signal (w) - DTE requests the DCE prepare to transmit data. }
+    { RTR (Ready To Receive) (w) - DTE is ready to receive data from DCE. If in use, RTS is assumed to be always asserted. }
+    RTS: Boolean;
+    { CTS (Clear to send) signal (r) - DCE is ready to accept data from the DTE. }
+    CTS: boolean;
+    { DTR (Data Terminal Ready) signal (w) - DTE is ready to receive, initiate, or continue a call. }
+    DTR: Boolean;
+    { DSR (Data Set Ready) signal (r) - DCE is ready to receive and send data. }
+    DSR: Boolean;
+    { Data Carrier Detect (r) - DCE is receiving a carrier from a remote DCE. }
+    Carrier: Boolean;
+    { Ring Indicator (r) - DCE has detected an incoming ring signal on the telephone line. }
+    Ring: Boolean;
+  end;
 
   { TDataPortUART - serial DataPort }
   TDataPortUART = class(TDataPort)
@@ -49,6 +75,7 @@ type
     FSoftFlow: Boolean;
     FHardFlow: Boolean;
     FMinDataBytes: Integer;
+    FModemStatus: TModemStatus;
     procedure SetBaudRate(AValue: Integer); virtual;
     procedure SetDataBits(AValue: Integer); virtual;
     procedure SetParity(AValue: AnsiChar); virtual;
@@ -75,6 +102,15 @@ type
     function Pull(size: Integer = MaxInt): AnsiString; override;
     function Peek(size: Integer = MaxInt): AnsiString; override;
     function PeekSize(): Cardinal; override;
+
+    { Get modem wires status (DSR,CTS,Ring,Carrier) }
+    function GetModemStatus(): TModemStatus; virtual;
+    { Set DTR (Data Terminal Ready) signal }
+    procedure SetDTR(AValue: Boolean); virtual;
+    { Set RTS (Request to send) signal }
+    procedure SetRTS(AValue: Boolean); virtual;
+    { Modem wires status }
+    property ModemStatus: TModemStatus read FModemStatus;
   published
     { Serial port name (COM1, /dev/ttyS01) }
     property Port: string read FPort write FPort;
@@ -279,6 +315,21 @@ begin
   finally
     FLock.EndRead();
   end;
+end;
+
+function TDataPortUART.GetModemStatus(): TModemStatus;
+begin
+  Result := FModemStatus;
+end;
+
+procedure TDataPortUART.SetDTR(AValue: Boolean);
+begin
+  FModemStatus.DTR := AValue;
+end;
+
+procedure TDataPortUART.SetRTS(AValue: Boolean);
+begin
+  FModemStatus.RTS := AValue;
 end;
 
 {

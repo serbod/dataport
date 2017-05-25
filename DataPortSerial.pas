@@ -30,12 +30,26 @@ unit DataPortSerial;
 interface
 
 uses
+  {$IFNDEF MSWINDOWS}
+    {$IFNDEF NO_LIBC}
+    Libc,
+    KernelIoctl,
+    {$ELSE}
+    termio, baseunix, unix,
+    {$ENDIF}
+    {$IFNDEF FPC}
+    Types,
+    {$ENDIF}
+  {$ELSE}
+    Windows,
+  {$ENDIF}
   SysUtils, Classes, DataPort, DataPortUART, synaser, synautil;
 
 type
   { TSerialClient - serial port reader/writer, based on Ararat Synapse }
   TSerialClient = class(TThread)
   private
+    FSerial: TBlockSerial;
     sFromPort: AnsiString;
     sLastError: string;
     FSafeMode: Boolean;
@@ -48,7 +62,6 @@ type
   protected
     procedure Execute(); override;
   public
-    Serial: TBlockSerial;
     sPort: string;
     iBaudRate: Integer;
     DataBits: Integer;
@@ -59,6 +72,7 @@ type
     CalledFromThread: Boolean;
     sToSend: AnsiString;
     property SafeMode: Boolean read FSafeMode write FSafeMode;
+    property Serial: TBlockSerial read FSerial;
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
       write FOnIncomingMsgEvent;
     property OnErrorEvent: TMsgEvent read FOnErrorEvent write FOnErrorEvent;
@@ -97,6 +111,13 @@ type
     procedure Close(); override;
     function Push(const AData: AnsiString): Boolean; override;
     class function GetSerialPortNames(): string;
+
+    { Get modem wires status (DSR,CTS,Ring,Carrier) }
+    function GetModemStatus(): TModemStatus; override;
+    { Set DTR (Data Terminal Ready) signal }
+    procedure SetDTR(AValue: Boolean); override;
+    { Set RTS (Request to send) signal }
+    procedure SetRTS(AValue: Boolean); override;
 
     property SerialClient: TSerialClient read FSerialClient;
 
@@ -175,8 +196,8 @@ procedure TSerialClient.Execute();
 begin
   sLastError := '';
 
+  FSerial := TBlockSerial.Create();
   try
-    Serial := TBlockSerial.Create();
     Serial.DeadlockTimeout := 3000;
     Serial.Connect(sPort);
     Sleep(1);
@@ -235,7 +256,7 @@ begin
 
     end;
   finally
-    FreeAndNil(Serial);
+    FreeAndNil(FSerial);
   end;
 end;
 
@@ -245,7 +266,7 @@ begin
   if not Assigned(Self.Serial) then
     Exit;
   if SafeMode then
-    Self.sToSend := AData
+    Self.sToSend := Self.sToSend + AData
   else
   begin
     if Serial.CanWrite(100) then
@@ -271,7 +292,7 @@ begin
     ss := TStringStream.Create('');
     try
       ss.CopyFrom(st, st.Size);
-      Self.sToSend := ss.DataString;
+      Self.sToSend := Self.sToSend + ss.DataString;
     finally
       ss.Free();
     end;
@@ -362,6 +383,46 @@ end;
 class function TDataPortSerial.GetSerialPortNames: string;
 begin
   Result := synaser.GetSerialPortNames();
+end;
+
+function TDataPortSerial.GetModemStatus(): TModemStatus;
+var
+  ModemWord: Integer;
+begin
+  if Assigned(SerialClient) and Assigned(SerialClient.Serial) then
+  begin
+    ModemWord := SerialClient.Serial.ModemStatus();
+    {$IFNDEF MSWINDOWS}
+    FModemStatus.DSR := (ModemWord and TIOCM_DSR) > 0;
+    FModemStatus.CTS := (ModemWord and TIOCM_CTS) > 0;
+    FModemStatus.Carrier := (ModemWord and TIOCM_CAR) > 0;
+    FModemStatus.Ring := (ModemWord and TIOCM_RNG) > 0;
+    {$ELSE}
+    FModemStatus.DSR := (ModemWord and MS_DSR_ON) > 0;
+    FModemStatus.CTS := (ModemWord and MS_CTS_ON) > 0;
+    FModemStatus.Carrier := (ModemWord and MS_RLSD_ON) > 0;
+    FModemStatus.Ring := (ModemWord and MS_RING_ON) > 0;
+    {$ENDIF}
+  end;
+  Result := inherited GetModemStatus;
+end;
+
+procedure TDataPortSerial.SetDTR(AValue: Boolean);
+begin
+  if Assigned(SerialClient) and Assigned(SerialClient.Serial) then
+  begin
+    SerialClient.Serial.DTR := AValue;
+  end;
+  inherited SetDTR(AValue);
+end;
+
+procedure TDataPortSerial.SetRTS(AValue: Boolean);
+begin
+  if Assigned(SerialClient) and Assigned(SerialClient.Serial) then
+  begin
+    SerialClient.Serial.RTS := AValue;
+  end;
+  inherited SetRTS(AValue);
 end;
 
 function TDataPortSerial.Push(const AData: AnsiString): Boolean;

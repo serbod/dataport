@@ -370,7 +370,7 @@ function TDataPortHTTP.Push(const AData: AnsiString): Boolean;
 var
   i: Integer;
   sUrl, sParams, sData: string;
-  sMethod, sLastError: string;
+  sMethod: string;
   bResult: Boolean;
 begin
   Result := False;
@@ -402,7 +402,6 @@ begin
   begin
     // non-threaded
     Self.HttpSend := THTTPSend.Create();
-    sLastError := '';
     sMethod := 'GET';
     synautil.WriteStrToStream(Self.HttpSend.Document, sData);
     if self.method = httpPost then

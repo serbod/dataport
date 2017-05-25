@@ -1,0 +1,301 @@
+object FormMain: TFormMain
+  Left = 525
+  Height = 452
+  Top = 289
+  Width = 669
+  Caption = 'DataPort Terminal'
+  ClientHeight = 452
+  ClientWidth = 669
+  OnCreate = FormCreate
+  LCLVersion = '1.7'
+  object memoTerminal: TMemo
+    Left = 0
+    Height = 388
+    Top = 64
+    Width = 669
+    Align = alClient
+    BorderStyle = bsNone
+    Color = clBlack
+    Font.Color = clLime
+    Font.Height = -13
+    Font.Name = 'Courier New'
+    Font.Style = [fsBold]
+    Lines.Strings = (
+      'memoTerminal'
+    )
+    OnKeyPress = memoTerminalKeyPress
+    ParentFont = False
+    ReadOnly = True
+    ScrollBars = ssAutoBoth
+    TabOrder = 0
+    WordWrap = False
+  end
+  object pgcMain: TPageControl
+    Left = 0
+    Height = 64
+    Top = 0
+    Width = 669
+    ActivePage = tsSerial
+    Align = alTop
+    Font.Height = -13
+    ParentFont = False
+    TabIndex = 0
+    TabOrder = 1
+    OnChange = pgcMainChange
+    object tsSerial: TTabSheet
+      Caption = 'Serial port'
+      ClientHeight = 34
+      ClientWidth = 661
+      object lbSerialPort: TLabel
+        Left = 8
+        Height = 17
+        Top = 7
+        Width = 27
+        Caption = 'Port:'
+        ParentColor = False
+      end
+      object cbSerialPort: TComboBox
+        Left = 48
+        Height = 25
+        Top = 7
+        Width = 112
+        ItemHeight = 17
+        TabOrder = 0
+        Text = 'cbSerialPort'
+      end
+      object lbSerialBitrate: TLabel
+        Left = 173
+        Height = 17
+        Top = 11
+        Width = 40
+        Caption = 'Bitrate:'
+        ParentColor = False
+      end
+      object cbSerialBitrate: TComboBox
+        Left = 224
+        Height = 25
+        Top = 7
+        Width = 112
+        ItemHeight = 17
+        TabOrder = 1
+        Text = 'cbSerialBitrate'
+      end
+      object btnSerialConnect: TBitBtn
+        Left = 351
+        Height = 25
+        Top = 7
+        Width = 107
+        Action = actConnect
+        TabOrder = 2
+      end
+      object chkLocalEcho: TCheckBox
+        Left = 487
+        Height = 21
+        Top = 12
+        Width = 82
+        Caption = 'Local echo'
+        TabOrder = 3
+      end
+    end
+    object tsTCP: TTabSheet
+      Caption = 'TCP port'
+      ClientHeight = 34
+      ClientWidth = 661
+      object lbTCPHost: TLabel
+        Left = 7
+        Height = 17
+        Top = 9
+        Width = 56
+        Caption = 'TCP Host:'
+        ParentColor = False
+      end
+      object edTCPHost: TEdit
+        Left = 77
+        Height = 25
+        Top = 9
+        Width = 179
+        TabOrder = 0
+        Text = 'localhost'
+      end
+      object lbTCPPort: TLabel
+        Left = 272
+        Height = 17
+        Top = 9
+        Width = 27
+        Caption = 'Port:'
+        ParentColor = False
+      end
+      object edTCPPort: TEdit
+        Left = 312
+        Height = 25
+        Top = 9
+        Width = 64
+        TabOrder = 1
+        Text = '23'
+      end
+      object btnTCPConnect: TBitBtn
+        Left = 392
+        Height = 25
+        Top = 9
+        Width = 107
+        Action = actConnect
+        TabOrder = 2
+      end
+    end
+    object tsUDP: TTabSheet
+      Caption = 'UDP port'
+      ClientHeight = 36
+      ClientWidth = 661
+      object lbUDPHost: TLabel
+        Left = 7
+        Height = 17
+        Top = 9
+        Width = 59
+        Caption = 'UDP Host:'
+        ParentColor = False
+      end
+      object edUDPHost: TEdit
+        Left = 77
+        Height = 25
+        Top = 9
+        Width = 179
+        TabOrder = 0
+        Text = 'localhost'
+      end
+      object lbUDPPort: TLabel
+        Left = 272
+        Height = 17
+        Top = 9
+        Width = 27
+        Caption = 'Port:'
+        ParentColor = False
+      end
+      object edUDPPort: TEdit
+        Left = 312
+        Height = 25
+        Top = 9
+        Width = 64
+        TabOrder = 1
+        Text = '135'
+      end
+      object btnUDPConnect: TBitBtn
+        Left = 392
+        Height = 25
+        Top = 9
+        Width = 107
+        Action = actConnect
+        TabOrder = 2
+      end
+    end
+    object tsHTTP: TTabSheet
+      Caption = 'HTTP'
+      ClientHeight = 36
+      ClientWidth = 661
+      object lbHTTPHost: TLabel
+        Left = 7
+        Height = 17
+        Top = 9
+        Width = 64
+        Caption = 'HTTP Host:'
+        ParentColor = False
+      end
+      object edHTTPHost: TEdit
+        Left = 77
+        Height = 25
+        Top = 9
+        Width = 259
+        TabOrder = 0
+        Text = 'google.com'
+      end
+      object btnHTTPConnect: TBitBtn
+        Left = 351
+        Height = 25
+        Top = 7
+        Width = 107
+        Action = actConnect
+        TabOrder = 1
+      end
+    end
+    object tsFile: TTabSheet
+      Caption = 'File / device'
+      ClientHeight = 34
+      ClientWidth = 661
+      object lbFileName: TLabel
+        Left = 7
+        Height = 17
+        Top = 9
+        Width = 58
+        Caption = 'File name:'
+        ParentColor = False
+      end
+      object edFileName: TEdit
+        Left = 77
+        Height = 25
+        Top = 9
+        Width = 259
+        TabOrder = 0
+        Text = 'clip'
+      end
+      object btnFileConnect: TBitBtn
+        Left = 351
+        Height = 25
+        Top = 7
+        Width = 107
+        Action = actConnect
+        TabOrder = 1
+      end
+    end
+  end
+  object alMain: TActionList
+    Left = 288
+    Top = 168
+    object actConnect: TAction
+      Caption = 'Connect'
+      OnExecute = actConnectExecute
+    end
+    object actClear: TAction
+      Caption = 'Clear'
+      OnExecute = actClearExecute
+    end
+  end
+  object dpSerial: TDataPortSerial
+    Port = 'COM1'
+    BaudRate = 9600
+    DataBits = 8
+    Parity = 'N'
+    StopBits = stb1
+    SoftFlow = False
+    HardFlow = False
+    MinDataBytes = 1
+    Active = False
+    Left = 416
+    Top = 168
+  end
+  object dpTCP: TDataPortTCP
+    Active = False
+    Left = 416
+    Top = 232
+  end
+  object dpUDP: TDataPortUDP
+    Active = False
+    Left = 416
+    Top = 296
+  end
+  object dpHTTP: TDataPortHTTP
+    Method = httpGet
+    SafeMode = True
+    Active = False
+    Left = 416
+    Top = 360
+  end
+  object dpFile: TDataPortFile
+    Active = False
+    FilePos = 0
+    QueryInterval = 100
+    MinDataBytes = 1
+    KeepOpen = True
+    WriteMode = fwmAppend
+    Left = 504
+    Top = 168
+  end
+end

@@ -86,6 +86,12 @@ type
     { Set port parameters (baud rate, data bits, etc..) }
     procedure Config();
     function SendString(const AData: AnsiString): Boolean;
+    { Get modem wires status (DSR,CTS,Ring,Carrier) }
+    function ReadModemStatus(var AModemStatus: TModemStatus): Boolean;
+    { Set DTR (Data Terminal Ready) signal }
+    procedure SetDTR(AValue: Boolean);
+    { Set RTS (Request to send) signal }
+    procedure SetRTS(AValue: Boolean);
   end;
 
   { TDataPortFtdi }
@@ -116,8 +122,16 @@ type
     procedure Open(const AInitStr: string = ''); override;
     procedure Close(); override;
     function Push(const AData: AnsiString): Boolean; override;
+
     class function GetFtdiDeviceList(): string;
     //class function GetFtdiDriverVersion(): string;
+
+    { Get modem wires status (DSR,CTS,Ring,Carrier) }
+    function GetModemStatus(): TModemStatus; override;
+    { Set DTR (Data Terminal Ready) signal }
+    procedure SetDTR(AValue: Boolean); override;
+    { Set RTS (Request to send) signal }
+    procedure SetRTS(AValue: Boolean); override;
   published
     property Active;
     { FTDI device serial number }
@@ -382,13 +396,54 @@ begin
   Result := False;
   if SafeMode then
   begin
-    self.sToSend := AData;
+    self.sToSend := self.sToSend + AData;
     Result := True;
   end
   else
   begin
     WriteResult := SendStringInternal(AData);
     Result := (WriteResult = Length(AData));
+  end;
+end;
+
+function TFtdiClient.ReadModemStatus(var AModemStatus: TModemStatus): Boolean;
+var
+  ModemStat: LongWord;
+begin
+  if FFtHandle <> FT_INVALID_HANDLE then
+  begin
+    Result := (FT_GetModemStatus(FFtHandle, @ModemStat) = FT_OK);
+    if Result then
+    begin
+      AModemStatus.CTS := (ModemStat and FT_CTS) <> 0;
+      AModemStatus.DSR := (ModemStat and FT_DSR) <> 0;
+      AModemStatus.Ring := (ModemStat and FT_RI) <> 0;
+      AModemStatus.Carrier := (ModemStat and FT_DCD) <> 0;
+    end;
+  end
+  else
+    Result := False;
+end;
+
+procedure TFtdiClient.SetDTR(AValue: Boolean);
+begin
+  if FFtHandle <> FT_INVALID_HANDLE then
+  begin
+    if AValue then
+      FT_SetDtr(FFtHandle)
+    else
+      FT_ClrDtr(FFtHandle);
+  end;
+end;
+
+procedure TFtdiClient.SetRTS(AValue: Boolean);
+begin
+  if FFtHandle <> FT_INVALID_HANDLE then
+  begin
+    if AValue then
+      FT_SetRts(FFtHandle)
+    else
+      FT_ClrRts(FFtHandle);
   end;
 end;
 
@@ -556,6 +611,29 @@ begin
     end;
   end;
 
+end;
+
+function TDataPortFtdi.GetModemStatus(): TModemStatus;
+begin
+  if Assigned(FtdiClient) then
+  begin
+    FtdiClient.ReadModemStatus(FModemStatus);
+  end;
+  Result := inherited GetModemStatus;
+end;
+
+procedure TDataPortFtdi.SetDTR(AValue: Boolean);
+begin
+  if Assigned(FtdiClient) then
+    FtdiClient.SetDTR(AValue);
+  inherited SetDTR(AValue);
+end;
+
+procedure TDataPortFtdi.SetRTS(AValue: Boolean);
+begin
+  if Assigned(FtdiClient) then
+    FtdiClient.SetRTS(AValue);
+  inherited SetRTS(AValue);
 end;
 
 (*

@@ -135,6 +135,7 @@ var
   ss: AnsiString;
 begin
   sLastError := '';
+  buf[0] := 0;
 
   try
     FInputPipeStream := TInputPipeStream.Create(FInputHandle);
