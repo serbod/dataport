@@ -59,11 +59,13 @@ type
     { output buffer }
     FFtOutBuffer: array[0..FT_Out_Buffer_Index] of byte;
     procedure SyncProc();
+    procedure SyncProcOnError();
     procedure SyncProcOnConnect();
     function SendStringInternal(AData: string): Integer;
     function CheckFtError(APortStatus: FT_Result; AFunctionName: string = ''): Boolean;
     function GetFtErrorDescription(APortStatus: FT_Result): string;
   protected
+    FParentDataPort: TDataPortUART;
     procedure Execute(); override;
   public
     //Serial: TBlockSerial;
@@ -76,6 +78,7 @@ type
     FtStopBits: byte;
     FtParity: byte;
     FtFlowControl: word;
+    constructor Create(AParent: TDataPortUART); reintroduce;
     procedure AfterConstruction; override;
     property SafeMode: Boolean read FSafeMode write FSafeMode;
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
@@ -112,7 +115,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
     { Open FTDI device for data transmission
-      InitStr = '<DeviceDescription>:<SerialNumber>'
+      InitStr = '<DeviceDescription>:<SerialNumber>:<PortInitStr>'
       Examples:
         'USB Serial:' - first device of 'USB Serial' type
         ':FT425622'   - device with s/n FT425622
@@ -174,7 +177,11 @@ begin
   if APortStatus <> FT_OK then
   begin
     sLastError := AFunctionName + ': ' + GetFtErrorDescription(APortStatus);
-    Synchronize(SyncProc);
+    if Assigned(FParentDataPort.OnError) then
+      Synchronize(SyncProc)
+    else if Assigned(OnError) then
+      OnError(Self, sLastError);
+
     Result := False;
   end;
 end;
@@ -200,12 +207,7 @@ begin
       Result := WriteResult;
     end;
   end;
-  if FFtIOStatus <> FT_OK then
-  begin
-    sLastError := 'FT_Write: ' + GetFtErrorDescription(FFtIOStatus);
-    Synchronize(SyncProc);
-    Exit;
-  end;
+  CheckFtError(FFtIOStatus, 'FT_Write');
 end;
 
 procedure TFtdiClient.Execute();
@@ -297,7 +299,12 @@ begin
         end;
 
         if PortStatus = FT_OK then
-          Synchronize(SyncProcOnConnect)
+        begin
+          if Assigned(FParentDataPort.OnOpen) then
+            Synchronize(SyncProcOnConnect)
+          else if Assigned(OnConnect) then
+            OnConnect(Self);
+        end
         else
         begin
           Terminate();
@@ -326,7 +333,11 @@ begin
           // copy input buffer to string
           SetLength(sFromPort, ReadResult);
           Move(FFtInBuffer, sFromPort[1], ReadResult);
-          Synchronize(SyncProc);
+          if Assigned(FParentDataPort.OnDataAppear) then
+            Synchronize(SyncProc)
+          else if Assigned(OnIncomingMsgEvent) then
+            OnIncomingMsgEvent(Self, sFromPort);
+          sFromPort := '';
         end;
       end;
 
@@ -344,7 +355,13 @@ begin
   end;
 end;
 
-procedure TFtdiClient.AfterConstruction();
+constructor TFtdiClient.Create(AParent: TDataPortUART);
+begin
+  inherited Create(True);
+  FParentDataPort := AParent;
+end;
+
+procedure TFtdiClient.AfterConstruction;
 begin
   inherited AfterConstruction;
   FtBaudRate    := FT_BAUD_9600;
@@ -441,33 +458,44 @@ end;
 
 procedure TFtdiClient.SyncProc();
 begin
-  if CalledFromThread then
-    Exit;
-  //if s:='' then Exit;
-  CalledFromThread := True;
-  if sFromPort <> '' then
+  if not CalledFromThread then
   begin
-    if Assigned(self.FOnIncomingMsgEvent) then
-      FOnIncomingMsgEvent(self, sFromPort);
-    sFromPort := '';
+    CalledFromThread := True;
+    try
+      if Assigned(OnIncomingMsgEvent) then
+        OnIncomingMsgEvent(self, sFromPort);
+    finally
+      CalledFromThread := False;
+    end;
   end;
-  if sLastError <> '' then
+end;
+
+procedure TFtdiClient.SyncProcOnError();
+begin
+  if not CalledFromThread then
   begin
-    if Assigned(self.FOnErrorEvent) then
-      FOnErrorEvent(self, sLastError);
-    self.Terminate();
+    CalledFromThread := True;
+    try
+      if Assigned(OnError) then
+        OnError(Self, sLastError);
+    finally
+      CalledFromThread := False;
+    end;
   end;
-  CalledFromThread := False;
 end;
 
 procedure TFtdiClient.SyncProcOnConnect();
 begin
-  if CalledFromThread then
-    Exit;
-  CalledFromThread := True;
-  if Assigned(self.FOnConnectEvent) then
-    self.FOnConnectEvent(self);
-  CalledFromThread := False;
+  if not CalledFromThread then
+  begin
+    CalledFromThread := True;
+    try
+      if Assigned(OnConnect) then
+        OnConnect(Self);
+    finally
+      CalledFromThread := False;
+    end;
+  end;
 end;
 
 
@@ -497,7 +525,7 @@ begin
 
   if Assigned(self.FtdiClient) then
     FreeAndNil(self.FtdiClient);
-  Self.FtdiClient := TFtdiClient.Create(True);
+  Self.FtdiClient := TFtdiClient.Create(Self);
   Self.FtdiClient.InitStr := FFtDeviceDescription + ':' + FFtSerialNumber;
   Self.FtdiClient.SafeMode := True;
   Self.FtdiClient.OnIncomingMsgEvent := Self.OnIncomingMsgHandler;

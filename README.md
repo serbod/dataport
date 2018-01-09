@@ -87,10 +87,15 @@ Methods:
 
   * Open() - Opens port. As parameter it use port initialization string:
 ```
-InitStr = '<DeviceDescription>:<SerialNumber>'
+InitStr = '<DeviceDescription>:<SerialNumber>:<PortInitStr>'
+<PortInitStr> = 'Port,BaudRate,DataBits,Parity,StopBits,SoftFlow,HardFlow'
+
 Examples:
   'USB Serial:' - first device of 'USB Serial' type
   ':FT425622'   - device with s/n FT425622
+
+If device specified by <DeviceDescription> and/or <SerialNumber>
+then 'Port' parameter in <PortInitStr> is ignored 
 ```
   * GetFtdiDeviceList() - list of available devices in format:
 ```
@@ -105,7 +110,9 @@ Events:
 
 Asynchronous wrapper around Synapse TBlockSocket.
 
-When using UDP, remember, that it not session protocol, data delivery and correct order not guaranteed. To start receive tde data, you must send empty packet to remote side, it tell remote side return address.
+When using UDP, remember, that it not session protocol, data delivery and correct order not guaranteed. To start receive data, you must send empty packet to remote side, it tell remote side return address.
+
+From version 1.0.3 multiple DataPortIP instances uses common socket reader with single thread. It allow open thousands IP connections without performance losses.
 
 Properties:
 

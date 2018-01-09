@@ -58,8 +58,11 @@ type
     FOnConnectEvent: TNotifyEvent;
     FDoConfig: Boolean;
     procedure SyncProc();
+    procedure SyncProcOnError();
     procedure SyncProcOnConnect();
   protected
+    FParentDataPort: TDataPortUART;
+    function IsError(): Boolean;
     procedure Execute(); override;
   public
     sPort: string;
@@ -71,6 +74,7 @@ type
     HardFlow: Boolean;
     CalledFromThread: Boolean;
     sToSend: AnsiString;
+    constructor Create(AParent: TDataPortUART); reintroduce;
     property SafeMode: Boolean read FSafeMode write FSafeMode;
     property Serial: TBlockSerial read FSerial;
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
@@ -156,6 +160,12 @@ begin
 end;
 
 // === TSerialClient ===
+constructor TSerialClient.Create(AParent: TDataPortUART);
+begin
+  inherited Create(True);
+  FParentDataPort := AParent;
+end;
+
 procedure TSerialClient.Config();
 begin
   FDoConfig := True;
@@ -163,33 +173,58 @@ end;
 
 procedure TSerialClient.SyncProc();
 begin
-  if CalledFromThread then
-    Exit;
-  //if s:='' then Exit;
-  CalledFromThread := True;
-  if sFromPort <> '' then
+  if not CalledFromThread then
   begin
-    if Assigned(Self.FOnIncomingMsgEvent) then
-      FOnIncomingMsgEvent(Self, sFromPort);
-    sFromPort := '';
+    CalledFromThread := True;
+    try
+      if Assigned(OnIncomingMsgEvent) then
+        OnIncomingMsgEvent(Self, sFromPort);
+    finally
+      CalledFromThread := False;
+    end;
   end;
-  if sLastError <> '' then
+end;
+
+procedure TSerialClient.SyncProcOnError();
+begin
+  if not CalledFromThread then
   begin
-    if Assigned(Self.FOnErrorEvent) then
-      FOnErrorEvent(Self, sLastError);
-    Self.Terminate();
+    CalledFromThread := True;
+    try
+      if Assigned(OnErrorEvent) then
+        OnErrorEvent(Self, sLastError);
+    finally
+      CalledFromThread := False;
+    end;
   end;
-  CalledFromThread := False;
 end;
 
 procedure TSerialClient.SyncProcOnConnect();
 begin
-  if CalledFromThread then
-    Exit;
-  CalledFromThread := True;
-  if Assigned(Self.FOnConnectEvent) then
-    Self.FOnConnectEvent(Self);
-  CalledFromThread := False;
+  if not CalledFromThread then
+  begin
+    CalledFromThread := True;
+    try
+      if Assigned(OnConnectEvent) then
+        OnConnectEvent(Self);
+    finally
+      CalledFromThread := False;
+    end;
+  end;
+end;
+
+function TSerialClient.IsError(): Boolean;
+begin
+  Result := (Serial.LastError <> 0) and (Serial.LastError <> ErrTimeout);
+  if Result then
+  begin
+    sLastError := IntToStr(Serial.LastError) + '=' + Serial.LastErrorDesc;
+    if Assigned(FParentDataPort.OnError) then
+      Synchronize(SyncProcOnError)
+    else if Assigned(OnErrorEvent) then
+      OnErrorEvent(Self, sLastError);
+    Terminate();
+  end
 end;
 
 procedure TSerialClient.Execute();
@@ -208,14 +243,12 @@ begin
       Sleep(1);
     end;
 
-    if Serial.LastError <> 0 then
+    if not IsError() then
     begin
-      sLastError := Serial.LastErrorDesc;
-      Synchronize(SyncProc);
-    end
-    else
-    begin
-      Synchronize(SyncProcOnConnect);
+      if Assigned(FParentDataPort.OnOpen) then
+        Synchronize(SyncProcOnConnect)
+      else if Assigned(OnConnectEvent) then
+        OnConnectEvent(Self);
     end;
 
     while not Terminated do
@@ -232,10 +265,17 @@ begin
         sFromPort := Serial.RecvPacket(100);
       end;
 
-      if (Serial.LastError <> 0) and (Serial.LastError <> ErrTimeout) then
-        sLastError := IntToStr(Serial.LastError) + '=' + Serial.LastErrorDesc;
-      if (Length(sFromPort) > 0) or (Length(sLastError) > 0) then
-        Synchronize(SyncProc);
+      if IsError() then
+        Break
+      else if (Length(sFromPort) > 0) then
+      begin
+        if Assigned(FParentDataPort.OnDataAppear) then
+          Synchronize(SyncProc)
+        else if Assigned(OnIncomingMsgEvent) then
+            OnIncomingMsgEvent(Self, sFromPort);
+
+        sFromPort := '';
+      end;
 
       Sleep(1);
 
@@ -244,13 +284,9 @@ begin
         if Serial.CanWrite(10) then
         begin
           Serial.SendString(sToSend);
-          if (Serial.LastError <> 0) and (Serial.LastError <> ErrTimeout) then
-          begin
-            sLastError := Serial.LastErrorDesc;
-            Synchronize(SyncProc);
-          end
-          else
-            sToSend := '';
+          if IsError() then
+            Break;
+          sToSend := '';
         end;
       end;
 
@@ -325,7 +361,7 @@ begin
   begin
     FreeAndNil(FSerialClient);
   end;
-  FSerialClient := TSerialClient.Create(True);
+  FSerialClient := TSerialClient.Create(Self);
   FSerialClient.OnIncomingMsgEvent := Self.OnIncomingMsgHandler;
   FSerialClient.OnErrorEvent := Self.OnErrorHandler;
   FSerialClient.OnConnectEvent := Self.OnConnectHandler;
