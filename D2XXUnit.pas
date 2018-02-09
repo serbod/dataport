@@ -375,6 +375,7 @@ var
 {$IFDEF S}function {$ELSE}var {$ENDIF}FT_GetDeviceInfoDetail{$IFNDEF S}: function{$ENDIF}(Index: DWord; Flags, DevType, ID, LocID, SerialNumber, Description, DevHandle: Pointer): FT_Result; stdcall;{$IFDEF S}external FT_DLL_Name;{$ENDIF}
 {$IFDEF S}function {$ELSE}var {$ENDIF}FT_GetDriverVersion{$IFNDEF S}: function{$ENDIF}(ftHandle: Dword; DrVersion: Pointer): FT_Result; stdcall;{$IFDEF S}external FT_DLL_Name;{$ENDIF}
 {$IFDEF S}function {$ELSE}var {$ENDIF}FT_GetLibraryVersion{$IFNDEF S}: function{$ENDIF}(LbVersion: Pointer): FT_Result; stdcall;{$IFDEF S}external FT_DLL_Name;{$ENDIF}
+{$IFDEF S}function {$ELSE}var {$ENDIF}FT_GetComPortNumber{$IFNDEF S}: function{$ENDIF}(ftHandle: DWord; pComPortNumber: Pointer): FT_Result; stdcall;{$IFDEF S}external FT_DLL_Name;{$ENDIF}
 
 // EEPROM functions
 {$IFDEF S}function {$ELSE}var {$ENDIF}FT_EE_Read{$IFNDEF S}: function{$ENDIF}(ftHandle: DWord; pEEData: Pointer): FT_Result; stdcall;{$IFDEF S}external FT_DLL_Name;{$ENDIF}
@@ -446,6 +447,7 @@ begin
     FT_GetDeviceInfoDetail := GetProcAddress(Libhandle, 'FT_GetDeviceInfoDetail');
     FT_GetDriverVersion := GetProcAddress(Libhandle, 'FT_GetDriverVersion');
     FT_GetLibraryVersion := GetProcAddress(Libhandle, 'FT_GetLibraryVersion');
+    FT_GetComPortNumber := GetProcAddress(Libhandle, 'FT_GetComPortNumber');
 
     FT_EE_Read := GetProcAddress(Libhandle, 'FT_EE_Read');
     FT_EE_Program := GetProcAddress(Libhandle, 'FT_EE_Program');

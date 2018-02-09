@@ -1,7 +1,7 @@
 {
 Asynchronous wrapper around Synapse TBlockSocket.
 
-Copyright: Sergey Bodrov, 2012-2017
+(C) Sergey Bodrov, 2012-2018
 
 When using UDP, remember, that it not session protocol, data delivery and correct
 order not guaranteed. To start receive data, you must send empty packet to
@@ -28,7 +28,8 @@ unit DataPortIP;
 
 interface
 
-uses SysUtils, Classes, syncobjs, DataPort, synsock, blcksock, synautil;
+uses {$ifndef FPC}Windows,{$endif} SysUtils, Classes,
+   syncobjs, DataPort, synsock, blcksock, synautil;
 
 type
   TIpProtocolEnum = (ippUDP, ippTCP);
@@ -473,7 +474,7 @@ end;
 
 function TIpSocketItem.SendString(const ADataStr: AnsiString): Boolean;
 var
-  n, LockTryCount: Integer;
+  LockTryCount: Integer;
 begin
   //TxDataStr := TxDataStr + ADataStr;
   Result := False;

@@ -1,9 +1,7 @@
-unit DataPortFTDI;
-
 {
 Serial communication port based on FTD2XX library.
 
-Sergey Bodrov, 2012-2017
+(C) Sergey Bodrov, 2012-2018
 
 Properties:
   SerialNumber      - FTDI device serial number
@@ -25,20 +23,22 @@ Methods:
 Events:
   OnModemStatus - Triggered when modem status changes (CTS, DTR, RI, DCD)
 }
+unit DataPortFTDI;
 
 interface
 
-uses SysUtils, Classes, DataPort, DataPortUART, D2XXUnit;
+uses {$ifndef FPC}Windows,{$endif} SysUtils, Classes, DataPort, DataPortUART, D2XXUnit;
 
 type
-  TSerialFlowControl = (sfcNone, sfcRTS, sfcDTR, sfcXON);
-
   { TFtdiClient - FTDI device reader/writer thread }
   TFtdiClient = class(TThread)
   private
-    sFromPort: AnsiString;
-    sLastError: string;
-    FSafeMode: Boolean;
+    FRxData: AnsiString;
+    FTxData: AnsiString;
+
+    FTxLockCount: Integer;
+
+    FLastErrorStr: string;
     FOnIncomingMsgEvent: TMsgEvent;
     FOnErrorEvent: TMsgEvent;
     FOnConnectEvent: TNotifyEvent;
@@ -57,11 +57,11 @@ type
     { input buffer }
     FFtInBuffer: array[0..FT_In_Buffer_Index] of byte;
     { output buffer }
-    FFtOutBuffer: array[0..FT_Out_Buffer_Index] of byte;
+    //FFtOutBuffer: array[0..FT_Out_Buffer_Index] of byte;
     procedure SyncProc();
     procedure SyncProcOnError();
     procedure SyncProcOnConnect();
-    function SendStringInternal(AData: string): Integer;
+    function SendStringInternal(const AData: AnsiString): Integer;
     function CheckFtError(APortStatus: FT_Result; AFunctionName: string = ''): Boolean;
     function GetFtErrorDescription(APortStatus: FT_Result): string;
   protected
@@ -71,46 +71,52 @@ type
     //Serial: TBlockSerial;
     InitStr: string;
     CalledFromThread: Boolean;
-    sToSend: AnsiString;
     // port properties
-    FtBaudRate: LongWord;
-    FtDataBits: byte;
-    FtStopBits: byte;
-    FtParity: byte;
-    FtFlowControl: word;
+    BaudRate: Integer;
+    DataBits: Integer;
+    Parity: AnsiChar;
+    StopBits: TSerialStopBits;
+    FlowControl: TSerialFlowControl;
+    MinDataBytes: Integer;
+    HalfDuplex: Boolean;
+
     constructor Create(AParent: TDataPortUART); reintroduce;
-    procedure AfterConstruction; override;
-    property SafeMode: Boolean read FSafeMode write FSafeMode;
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
       write FOnIncomingMsgEvent;
     property OnError: TMsgEvent read FOnErrorEvent write FOnErrorEvent;
     property OnConnect: TNotifyEvent read FOnConnectEvent write FOnConnectEvent;
     { Set port parameters (baud rate, data bits, etc..) }
     procedure Config();
-    function SendString(const AData: AnsiString): Boolean;
+    function SendAnsiString(const AData: AnsiString): Boolean;
     { Get modem wires status (DSR,CTS,Ring,Carrier) }
     function ReadModemStatus(var AModemStatus: TModemStatus): Boolean;
     { Set DTR (Data Terminal Ready) signal }
     procedure SetDTR(AValue: Boolean);
     { Set RTS (Request to send) signal }
     procedure SetRTS(AValue: Boolean);
+    { Get COM port name }
+    function GetPortName(): string;
   end;
 
   { TDataPortFtdi }
 
   TDataPortFtdi = class(TDataPortUART)
   private
-    FtdiClient: TFtdiClient;
+    FFtdiClient: TFtdiClient;
     FFtSerialNumber: string;
     FFtDeviceDescription: string;
     FFlowControl: TSerialFlowControl;
     FOnModemStatus: TNotifyEvent;
+
+    function CloseClient(): Boolean;
   protected
     procedure SetBaudRate(AValue: Integer); override;
     procedure SetDataBits(AValue: Integer); override;
     procedure SetParity(AValue: AnsiChar); override;
     procedure SetStopBits(AValue: TSerialStopBits); override;
-    procedure SetFlowControl(AValue: TSerialFlowControl);
+    procedure SetFlowControl(AValue: TSerialFlowControl); override;
+
+    property FtdiClient: TFtdiClient read FFtdiClient;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
@@ -125,6 +131,7 @@ type
     procedure Close(); override;
     function Push(const AData: AnsiString): Boolean; override;
 
+    { list of available devices in format <DeviceDescription>:<SerialNumber><LineFeed> }
     class function GetFtdiDeviceList(): string;
     //class function GetFtdiDriverVersion(): string;
 
@@ -140,7 +147,7 @@ type
     property SerialNumber: string read FFtSerialNumber write FFtSerialNumber;
     { FTDI device description string }
     property DeviceDescription: string read FFtDeviceDescription write FFtDeviceDescription;
-    { FTDI flow control }
+    { FlowControl - (sfcNone, sfcSend, sfcReady, sfcSoft) default sfcNone }
     property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl;
     property BaudRate;
     property DataBits;
@@ -157,6 +164,9 @@ procedure Register;
 
 
 implementation
+
+const
+  TX_BUF_SIZE = 128;
 
 procedure Register;
 begin
@@ -176,99 +186,155 @@ begin
   Result := True;
   if APortStatus <> FT_OK then
   begin
-    sLastError := AFunctionName + ': ' + GetFtErrorDescription(APortStatus);
-    if Assigned(FParentDataPort.OnError) then
-      Synchronize(SyncProc)
-    else if Assigned(OnError) then
-      OnError(Self, sLastError);
-
+    Terminate();
+    FLastErrorStr := AFunctionName + ': ' + GetFtErrorDescription(APortStatus);
     Result := False;
   end;
 end;
 
-function TFtdiClient.SendStringInternal(AData: string): Integer;
+function TFtdiClient.SendStringInternal(const AData: AnsiString): Integer;
 var
-  WriteCount, WriteResult: Integer;
+  WriteResult: Integer;
+  WritePos, WriteSize, TotalSize: Integer;
 begin
   Result := 0;
-  FFtIOStatus := FT_GetStatus(FFtHandle, @FFtRxQBytes, @FFtTxQBytes, @FFtEventStatus);
-  if FFtIOStatus = FT_OK then
+  TotalSize := Length(AData);
+  if (TotalSize = 0) or Terminated then
+    Exit;
+  WritePos := 0;
+  while (FFtIOStatus = FT_OK) and (Result < TotalSize) do
   begin
-    WriteCount := Length(AData);
-    if WriteCount > Length(FFtOutBuffer) then
-      WriteCount := Length(FFtOutBuffer);
-    Move(AData, FFtOutBuffer, WriteCount);
-    // Writes Write_Count Bytes from FT_Out_Buffer to the USB device
-    // Function returns the number of bytes actually sent
-    // In this example, Write_Count should be 64k bytes max
-    FFtIOStatus := FT_Write(FFtHandle, @FFtOutBuffer, WriteCount, @WriteResult);
+    // some FTDI chips or drivers can't receive many bytes at once
+    WriteSize := TX_BUF_SIZE;
+    if (WritePos + WriteSize) > TotalSize then
+      WriteSize := TotalSize - WritePos;
+
+    FFtIOStatus := FT_GetStatus(FFtHandle, @FFtRxQBytes, @FFtTxQBytes, @FFtEventStatus);
     if FFtIOStatus = FT_OK then
     begin
-      Result := WriteResult;
+      if FFtTxQBytes > TX_BUF_SIZE then
+        Break;
+
+      // Writes Write_Count Bytes from FT_Out_Buffer to the USB device
+      // Function returns the number of bytes actually sent
+      // In this example, Write_Count should be 64k bytes max
+      if WriteSize > 0 then
+      begin
+        //Move(AData[WritePos+1], FFtOutBuffer, WriteSize);
+        //FFtIOStatus := FT_Write(FFtHandle, @FFtOutBuffer, WriteSize, @WriteResult);
+        if WritePos + WriteSize > Length(AData) then
+          Break;
+        FFtIOStatus := FT_Write(FFtHandle, @AData[WritePos+1], WriteSize, @WriteResult);
+        if FFtIOStatus = FT_OK then
+        begin
+          Result := Result + WriteResult;
+          if WriteResult <> WriteSize then
+            Break;
+        end
+        else
+          Break;
+        WritePos := WritePos + WriteSize;
+      end;
     end;
+
   end;
+
   CheckFtError(FFtIOStatus, 'FT_Write');
 end;
 
 procedure TFtdiClient.Execute();
 var
+  FtBaudRate: LongWord;
+  FtDataBits: byte;
+  FtStopBits: byte;
+  FtParity: byte;
+  FtFlowControl: word;
+  FtModemStatus: LongWord;
+  FtModemStatusPrev: LongWord;
+
   PortStatus: FT_Result;
   DeviceString: AnsiString;
   s, ss: string;
   FtDeviceStringBuffer: array [1..50] of AnsiChar;
   ReadCount, ReadResult, WriteResult: Integer;
   ReadTimeout, WriteTimeout: LongWord;
+  NeedSleep: Boolean;
+  LockCount: Integer;
 
 begin
   // Default settings
-  sLastError := '';
+  FLastErrorStr := '';
   DeviceString := '';
   FDoConfig := True;
   FFtHandle := FT_INVALID_HANDLE;
   FReadCount := SizeOf(FFtInBuffer);
-  ReadTimeout := 10;
-  WriteTimeout := 10;
+  ReadTimeout := 100;
+  WriteTimeout := 100;
+  FtBaudRate := FT_BAUD_9600;
+  FtDataBits := FT_DATA_BITS_8;
+  FtParity := FT_PARITY_NONE;
+  FtStopBits := FT_STOP_BITS_1;
+  FtFlowControl := FT_FLOW_NONE;
+  FtModemStatus := 0;
+  FtModemStatusPrev := 0;
+
+  if Terminated then Exit;
 
   // parse InitStr, open port
   FtDeviceStringBuffer[1] := #0; // remove warning
   ss := InitStr;
-  s := GetFirstWord(ss, ':');
+  DeviceString := ExtractFirstWord(ss, ':');
+  s := ExtractFirstWord(ss, ':'); // Serial num
   if Length(s) > 0 then
   begin
-    DeviceString := s;
+    FillChar(FtDeviceStringBuffer, SizeOf(FtDeviceStringBuffer), 0);
+    Move(s[1], FtDeviceStringBuffer, Length(s));
+    PortStatus := FT_OpenEx(@FtDeviceStringBuffer, FT_OPEN_BY_SERIAL_NUMBER, @FFtHandle);
+  end
+  else if Length(DeviceString) > 0 then
+  begin
     FillChar(FtDeviceStringBuffer, SizeOf(FtDeviceStringBuffer), 0);
     Move(DeviceString[1], FtDeviceStringBuffer, Length(DeviceString));
     PortStatus := FT_OpenEx(@FtDeviceStringBuffer, FT_OPEN_BY_DESCRIPTION, @FFtHandle);
   end
   else
-  begin
-    s := GetFirstWord(ss, ':');
-    if Length(s) > 0 then
-    begin
-      DeviceString := s;
-      FillChar(FtDeviceStringBuffer, SizeOf(FtDeviceStringBuffer), 0);
-      Move(DeviceString[1], FtDeviceStringBuffer, Length(DeviceString));
-      PortStatus := FT_OpenEx(@FtDeviceStringBuffer, FT_OPEN_BY_SERIAL_NUMBER,
-        @FFtHandle);
-    end
-    else
-      PortStatus := FT_DEVICE_NOT_FOUND;
-  end;
+    PortStatus := FT_DEVICE_NOT_FOUND;
 
-  if CheckFtError(PortStatus, 'FT_OpenEx') then
-  begin
-    Terminate();
-    Exit;
-  end;
+  if not CheckFtError(PortStatus, 'FT_OpenEx') then
+    FFtHandle := FT_INVALID_HANDLE;
 
   // Device handle acquired, we must release it in any case
   try
     while not Terminated do
     begin
+      NeedSleep := True;
       // configure port
       if FDoConfig then
       begin
         FDoConfig := False;
+        if BaudRate <> 0 then
+          FtBaudRate := BaudRate;
+        if DataBits <> 0 then
+          FtDataBits := Byte(DataBits);
+        case Parity of
+          'N', 'n': FtParity := FT_PARITY_NONE;
+          'O', 'o': FtParity := FT_PARITY_ODD;
+          'E', 'e': FtParity := FT_PARITY_EVEN;
+          'M', 'm': FtParity := FT_PARITY_MARK;
+          'S', 's': FtParity := FT_PARITY_SPACE;
+        end;
+        case StopBits of
+          stb1:  FtStopBits := FT_STOP_BITS_1;
+          stb15: FtStopBits := FT_STOP_BITS_15;
+          stb2:  FtStopBits := FT_STOP_BITS_2;
+        end;
+        case FlowControl of
+          sfcNone:   FtFlowControl := FT_FLOW_NONE;
+          sfcSend:   FtFlowControl := FT_FLOW_RTS_CTS;
+          sfcReady:  FtFlowControl := FT_FLOW_DTR_DSR;
+          sfcSoft:   FtFlowControl := FT_FLOW_XON_XOFF;
+        end;
+
         // This function sends a reset command to the device.
         PortStatus := FT_ResetDevice(FFtHandle);
         if CheckFtError(PortStatus, 'FT_ResetDevice') then
@@ -292,6 +358,8 @@ begin
                   // This function purges receive and transmit buffers in the device.
                   PortStatus := FT_Purge(FFtHandle, (FT_PURGE_RX + FT_PURGE_TX));
                   CheckFtError(PortStatus, 'FT_Purge');
+                  PortStatus := FT_ResetDevice(FFtHandle);
+                  CheckFtError(PortStatus, 'FT_ResetDevice_2');
                 end;
               end;
             end;
@@ -312,11 +380,25 @@ begin
         end;
       end;
 
+      // update modem status
+      if Assigned(FParentDataPort.OnModemStatus) then
+      begin
+        FFtIOStatus := FT_GetModemStatus(FFtHandle, @FtModemStatus);
+        if CheckFtError(FFtIOStatus, 'FT_GetModemStatus') then
+        begin
+          if FtModemStatusPrev <> FtModemStatus then
+          begin
+            FtModemStatusPrev := FtModemStatus;
+            Synchronize(SyncProc);
+          end;
+        end;
+      end;
+
       // Reads Read_Count Bytes (or less) from the USB device to the FT_In_Buffer
       // Function returns the number of bytes actually received  which may range from zero
       // to the actual number of bytes requested, depending on how many have been received
       // at the time of the request + the read timeout value.
-      sFromPort := '';
+      FRxData := '';
       ReadCount := FReadCount;
       if (ReadCount = 1) then
       begin
@@ -331,44 +413,61 @@ begin
         if CheckFtError(FFtIOStatus, 'FT_Read') and (ReadResult > 0) then
         begin
           // copy input buffer to string
-          SetLength(sFromPort, ReadResult);
-          Move(FFtInBuffer, sFromPort[1], ReadResult);
+          SetLength(FRxData, ReadResult);
+          Move(FFtInBuffer, FRxData[1], ReadResult);
           if Assigned(FParentDataPort.OnDataAppear) then
             Synchronize(SyncProc)
           else if Assigned(OnIncomingMsgEvent) then
-            OnIncomingMsgEvent(Self, sFromPort);
-          sFromPort := '';
+            OnIncomingMsgEvent(Self, FRxData);
+          FRxData := '';
+          NeedSleep := False;
         end;
       end;
 
-      // safe mode write
-      if Length(sToSend) > 0 then
+      // HalfDuplex mode write
+      if HalfDuplex then
       begin
-        WriteResult := SendStringInternal(sToSend);
-        Delete(sToSend, 1, WriteResult);
+        // acquire lock
+        LockCount := InterLockedIncrement(FTxLockCount);
+        try
+          if (LockCount = 1) then
+          begin
+            if Length(FTxData) > 0 then
+            begin
+              WriteResult := SendStringInternal(FTxData);
+              Delete(FTxData, 1, WriteResult);
+              NeedSleep := False;
+            end;
+          end;
+        finally
+          // release lock
+          InterLockedDecrement(FTxLockCount);
+        end;
       end;
-      Sleep(1);
+
+      if NeedSleep then
+        Sleep(1);
     end;
 
   finally
-    PortStatus := FT_Close(FFtHandle);
+    if FFtHandle <> FT_INVALID_HANDLE then
+      FT_Close(FFtHandle);
+    FFtHandle := FT_INVALID_HANDLE;
+    FFtIOStatus := FT_INVALID_HANDLE;
   end;
+
+  if Assigned(FParentDataPort.OnError) then
+    Synchronize(SyncProcOnError)
+  else if Assigned(OnError) then
+    OnError(Self, FLastErrorStr);
+
 end;
 
 constructor TFtdiClient.Create(AParent: TDataPortUART);
 begin
   inherited Create(True);
   FParentDataPort := AParent;
-end;
-
-procedure TFtdiClient.AfterConstruction;
-begin
-  inherited AfterConstruction;
-  FtBaudRate    := FT_BAUD_9600;
-  FtDataBits    := FT_DATA_BITS_8;
-  FtStopBits    := FT_STOP_BITS_1;
-  FtParity      := FT_PARITY_NONE;
-  FtFlowControl := FT_FLOW_NONE;
+  BaudRate := 9600;
 end;
 
 function TFtdiClient.GetFtErrorDescription(APortStatus: FT_Result): string;
@@ -399,19 +498,38 @@ begin
   end;
 end;
 
-function TFtdiClient.SendString(const AData: AnsiString): Boolean;
+function TFtdiClient.SendAnsiString(const AData: AnsiString): Boolean;
 var
   WriteResult: Integer;
+  AttemptCount, LockCount: Integer;
 begin
-  if SafeMode then
+  Result := False;
+  AttemptCount := 10;
+  while AttemptCount > 0 do
   begin
-    self.sToSend := self.sToSend + AData;
-    Result := True;
-  end
-  else
-  begin
-    WriteResult := SendStringInternal(AData);
-    Result := (WriteResult = Length(AData));
+    Dec(AttemptCount);
+    LockCount := InterLockedIncrement(FTxLockCount);
+    try
+      if (LockCount = 1) then
+      begin
+        if HalfDuplex then
+        begin
+          FTxData := FTxData + AData;
+          Result := True;
+        end
+        else
+        begin
+          WriteResult := SendStringInternal(AData);
+          Result := (WriteResult = Length(AData));
+        end;
+        AttemptCount := 0;
+      end
+      else
+        Sleep(1);
+    finally
+      // release lock
+      InterLockedDecrement(FTxLockCount);
+    end;
   end;
 end;
 
@@ -463,7 +581,7 @@ begin
     CalledFromThread := True;
     try
       if Assigned(OnIncomingMsgEvent) then
-        OnIncomingMsgEvent(self, sFromPort);
+        OnIncomingMsgEvent(self, FRxData);
     finally
       CalledFromThread := False;
     end;
@@ -477,7 +595,7 @@ begin
     CalledFromThread := True;
     try
       if Assigned(OnError) then
-        OnError(Self, sLastError);
+        OnError(Self, FLastErrorStr);
     finally
       CalledFromThread := False;
     end;
@@ -498,6 +616,18 @@ begin
   end;
 end;
 
+function TFtdiClient.GetPortName(): string;
+var
+  ComPortNum: Longint;
+begin
+  Result := '';
+  if (FFtHandle <> FT_INVALID_HANDLE) then
+  begin
+    FT_GetComPortNumber(FFtHandle, @ComPortNum);
+    if ComPortNum <> -1 then
+      Result := 'COM' + IntToStr(ComPortNum);
+  end;
+end;
 
 { TDataPortFtdi }
 
@@ -505,7 +635,37 @@ constructor TDataPortFtdi.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FFlowControl := sfcNone;
-  Self.FtdiClient := nil;
+  FFtdiClient := nil;
+end;
+
+destructor TDataPortFtdi.Destroy();
+begin
+  if Assigned(FFtdiClient) then
+  begin
+    FFtdiClient.OnIncomingMsgEvent := nil;
+    FFtdiClient.OnError := nil;
+    FFtdiClient.OnConnect := nil;
+    FreeAndNil(FFtdiClient);
+  end;
+  inherited Destroy();
+end;
+
+function TDataPortFtdi.CloseClient(): Boolean;
+begin
+  Result := True;
+  if Assigned(FFtdiClient) then
+  begin
+    Result := not FFtdiClient.CalledFromThread;
+    if Result then
+    begin
+      FFtdiClient.OnIncomingMsgEvent := nil;
+      FFtdiClient.OnError := nil;
+      FFtdiClient.OnConnect := nil;
+      FreeAndNil(FFtdiClient);
+    end
+    else
+      FFtdiClient.Terminate();
+  end;
 end;
 
 procedure TDataPortFtdi.Open(const AInitStr: string);
@@ -516,46 +676,45 @@ begin
   // Set device description and serial number
   if ss <> '' then
   begin
-    Self.FFtDeviceDescription := GetFirstWord(ss, ':');
+    Self.FFtDeviceDescription := ExtractFirstWord(ss, ':');
 
-    Self.FFtSerialNumber := GetFirstWord(ss, ':');
+    Self.FFtSerialNumber := ExtractFirstWord(ss, ':');
   end;
 
   inherited Open(ss);
 
-  if Assigned(self.FtdiClient) then
-    FreeAndNil(self.FtdiClient);
-  Self.FtdiClient := TFtdiClient.Create(Self);
-  Self.FtdiClient.InitStr := FFtDeviceDescription + ':' + FFtSerialNumber;
-  Self.FtdiClient.SafeMode := True;
-  Self.FtdiClient.OnIncomingMsgEvent := Self.OnIncomingMsgHandler;
-  Self.FtdiClient.OnError := Self.OnErrorHandler;
-  Self.FtdiClient.OnConnect := Self.OnConnectHandler;
-  Self.FtdiClient.Suspended := False;
-  Self.FActive := True;
+  if CloseClient() then
+  begin
+    FFtdiClient := TFtdiClient.Create(Self);
+    FFtdiClient.InitStr := FFtDeviceDescription + ':' + FFtSerialNumber;
+    FFtdiClient.BaudRate := FBaudRate;
+    FFtdiClient.DataBits := FDataBits;
+    FFtdiClient.Parity := FParity;
+    FFtdiClient.StopBits := FStopBits;
+    FFtdiClient.FlowControl := FFlowControl;
+
+    FFtdiClient.HalfDuplex := HalfDuplex;
+    FFtdiClient.OnIncomingMsgEvent := OnIncomingMsgHandler;
+    FFtdiClient.OnError := OnErrorHandler;
+    FFtdiClient.OnConnect := OnConnectHandler;
+    FFtdiClient.Suspended := False;
+    // don't set FActive - will be set in OnConnect event after successfull connection
+  end;
 end;
 
 procedure TDataPortFtdi.Close();
 begin
-  if Assigned(FtdiClient) then
-    FreeAndNil(FtdiClient);
+  CloseClient();
   inherited Close();
-end;
-
-destructor TDataPortFtdi.Destroy();
-begin
-  if Assigned(FtdiClient) then
-    FreeAndNil(FtdiClient);
-  inherited Destroy();
 end;
 
 function TDataPortFtdi.Push(const AData: AnsiString): Boolean;
 begin
   Result := False;
-  if Assigned(FtdiClient) and FLock.BeginWrite() then
+  if Active and Assigned(FtdiClient) and FLock.BeginWrite() then
   begin
     try
-      Result := FtdiClient.SendString(AData);
+      Result := FtdiClient.SendAnsiString(AData);
     finally
       FLock.EndWrite();
     end;
@@ -583,9 +742,9 @@ begin
   //PortStatus :=  FT_GetDeviceInfoList(FtDeviceInfoList, @FtDeviceCount);
   //if PortStatus <> FT_OK then Exit;
 
-  for i := 0 to FtDeviceCount - 1 do
+  for i := 1 to FtDeviceCount do
   begin
-    DeviceIndex := i;
+    DeviceIndex := i-1;
     DeviceInfo.Flags := 0;
     DeviceInfo.DeviceType := 0;
     DeviceInfo.ID := 0;
@@ -621,7 +780,7 @@ begin
       }
 
       if Length(Result) > 0 then
-        Result := Result + #13#10;
+        Result := Result + sLineBreak;
       Result := Result + Trim(DeviceInfo.Description) + ':' + Trim(DeviceInfo.SerialNumber);
     end;
   end;
@@ -674,7 +833,7 @@ begin
   inherited SetBaudRate(AValue);
   if Active then
   begin
-    FtdiClient.FtBaudRate := FBaudRate;
+    FtdiClient.BaudRate := FBaudRate;
     FtdiClient.Config();
   end;
 end;
@@ -684,7 +843,7 @@ begin
   inherited SetDataBits(AValue);
   if Active then
   begin
-    FtdiClient.FtDataBits := Byte(FDataBits);
+    FtdiClient.DataBits := FDataBits;
     FtdiClient.Config();
   end;
 end;
@@ -694,12 +853,7 @@ begin
   FFlowControl := AValue;
   if Active then
   begin
-    case FFlowControl of
-      sfcNone: FtdiClient.FtFlowControl := FT_FLOW_NONE;
-      sfcRTS:  FtdiClient.FtFlowControl := FT_FLOW_RTS_CTS;
-      sfcDTR:  FtdiClient.FtFlowControl := FT_FLOW_DTR_DSR;
-      sfcXON:  FtdiClient.FtFlowControl := FT_FLOW_XON_XOFF;
-    end;
+    FtdiClient.FlowControl := FFlowControl;
     FtdiClient.Config();
   end;
 end;
@@ -709,13 +863,7 @@ begin
   inherited SetParity(AValue);
   if Active then
   begin
-    case FParity of
-      'N', 'n': FtdiClient.FtParity := FT_PARITY_NONE;
-      'O', 'o': FtdiClient.FtParity := FT_PARITY_ODD;
-      'E', 'e': FtdiClient.FtParity := FT_PARITY_EVEN;
-      'M', 'm': FtdiClient.FtParity := FT_PARITY_MARK;
-      'S', 's': FtdiClient.FtParity := FT_PARITY_SPACE;
-    end;
+    FtdiClient.Parity := FParity;
     FtdiClient.Config();
   end;
 end;
@@ -725,11 +873,7 @@ begin
   inherited SetStopBits(AValue);
   if Active then
   begin
-    case FStopBits of
-      stb1:  FtdiClient.FtStopBits := FT_STOP_BITS_1;
-      stb15: FtdiClient.FtStopBits := FT_STOP_BITS_15;
-      stb2:  FtdiClient.FtStopBits := FT_STOP_BITS_2;
-    end;
+    FtdiClient.StopBits := FStopBits;
     FtdiClient.Config();
   end;
 end;

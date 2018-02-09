@@ -2,7 +2,7 @@
 Serial communication port (UART). In Windows it COM-port, real or virtual.
 In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/FLock/LCK..ttyS for port FLocking
 
-Sergey Bodrov, 2012-2017
+(C) Sergey Bodrov, 2012-2018
 
 Properties:
   Port - port name (COM1, /dev/ttyS01)
@@ -10,9 +10,11 @@ Properties:
   DataBits - default 8  (5 for Baudot code, 7 for true ASCII)
   Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
   StopBits - (stb1, stb15, stb2), default stb1
-  SoftFlow - Software flow control, enable XON/XOFF handshake, default 1
-  HardFlow - Hardware flow control, not supported by many USB adapters.
-             Enable CTS/RTS handshake, default 0
+  FlowControl - (sfcNone, sfcSend, sfcReady, sfcSoft) default sfcNone
+    sfcSend - SEND signal pair CTS/RTS, used for hardware flow control
+    sfcReady - READY signal pair DTR/DSR, used for modem control
+    sfcSoft - software flow control XON/XOFF byte ($11 for resume and $13 for pause transmission)
+
   MinDataBytes - minimal bytes count in buffer for triggering event OnDataAppear
 
 Methods:
@@ -23,8 +25,8 @@ Methods:
     BaudRate - connection speed (50..4000000 bits per second), default 9600
     DataBits - default 8
     Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
-    StopBits - (1, 1.5, 2)
-    SoftFlow - Enable XON/XOFF handshake, default 1
+    StopBits - (1, 1.5, 2) default 0
+    SoftFlow - Enable XON/XOFF handshake, default 0
     HardFlow - Enable CTS/RTS handshake, default 0
 
 Events:
@@ -45,6 +47,8 @@ uses
 type
   TSerialStopBits = (stb1, stb15, stb2);
 
+  TSerialFlowControl = (sfcNone, sfcSend, sfcReady, sfcSoft);
+
   TModemStatus = record
     { RTS (Request to send) signal (w) - DTE requests the DCE prepare to transmit data. }
     { RTR (Ready To Receive) (w) - DTE is ready to receive data from DCE. If in use, RTS is assumed to be always asserted. }
@@ -63,8 +67,11 @@ type
 
   { TDataPortUART - serial DataPort }
   TDataPortUART = class(TDataPort)
+  private
+    FOnModemStatus: TNotifyEvent;
+    procedure SetHardFlow(AValue: Boolean);
+    procedure SetSoftFlow(AValue: Boolean);
   protected
-    //slReadData: TStringList; // for storing every incoming data packet separately
     FReadDataStr: AnsiString;
     FLock: TMultiReadExclusiveWriteSynchronizer;
     FPort: string;
@@ -72,16 +79,17 @@ type
     FDataBits: Integer;
     FParity: AnsiChar;
     FStopBits: TSerialStopBits;
+    FFlowControl: TSerialFlowControl;
     FSoftFlow: Boolean;
     FHardFlow: Boolean;
     FMinDataBytes: Integer;
+    FHalfDuplex: Boolean;
     FModemStatus: TModemStatus;
     procedure SetBaudRate(AValue: Integer); virtual;
     procedure SetDataBits(AValue: Integer); virtual;
     procedure SetParity(AValue: AnsiChar); virtual;
     procedure SetStopBits(AValue: TSerialStopBits); virtual;
-    procedure SetSoftFlow(AValue: Boolean); virtual;
-    procedure SetHardFlow(AValue: Boolean); virtual;
+    procedure SetFlowControl(AValue: TSerialFlowControl); virtual;
     procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string); virtual;
     procedure OnErrorHandler(Sender: TObject; const AMsg: string); virtual;
     procedure OnConnectHandler(Sender: TObject); virtual;
@@ -96,11 +104,11 @@ type
          DataBits - default 8
          Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
          StopBits - (1, 1.5, 2)
-         SoftFlow - Enable XON/XOFF handshake, default 1
+         SoftFlow - Enable XON/XOFF handshake, default 0
          HardFlow - Enable CTS/RTS handshake, default 0 }
-    procedure Open(const InitStr: string = ''); override;
-    function Pull(size: Integer = MaxInt): AnsiString; override;
-    function Peek(size: Integer = MaxInt): AnsiString; override;
+    procedure Open(const AInitStr: string = ''); override;
+    function Pull(ASize: Integer = MaxInt): AnsiString; override;
+    function Peek(ASize: Integer = MaxInt): AnsiString; override;
     function PeekSize(): Cardinal; override;
 
     { Get modem wires status (DSR,CTS,Ring,Carrier) }
@@ -122,25 +130,33 @@ type
     property Parity: AnsiChar read FParity write SetParity;
     { StopBits - (stb1, stb15, stb2), default stb1 }
     property StopBits: TSerialStopBits read FStopBits write SetStopBits;
-    { Software flow control, enable XON/XOFF handshake, default 1 }
-    property SoftFlow: Boolean read FSoftFlow write SetSoftFlow;
-    { Hardware flow control, not supported by many USB adapters
-      Enable CTS/RTS handshake, default 0 }
-    property HardFlow: Boolean read FHardFlow write SetHardFlow;
+    { Flow control - (sfcNone, sfcRTS, sfcDTR, sfcXON) default sfcNone
+      sfcSend - SEND signal pair CTS/RTS, used for hardware flow control
+      sfcReady - READY signal pair DTR/DSR, used for modem control
+      sfcSoft - software flow control XON/XOFF byte ($11 for resume and $13 for pause transmission) }
+    property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl;
+    { deprecated, set to False and use FlowControl }
+    property SoftFlow: Boolean read FSoftFlow write SetSoftFlow; {$ifdef FPC}deprecated;{$endif}
+    { deprecated, set to False and use FlowControl }
+    property HardFlow: Boolean read FHardFlow write SetHardFlow; {$ifdef FPC}deprecated;{$endif}
     { Minimum bytes in incoming buffer to trigger OnDataAppear }
     property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes;
+    { Use half-duplex for send and receive data }
+    property HalfDuplex: Boolean read FHalfDuplex write FHalfDuplex;
     property Active;
     property OnDataAppear;
     property OnError;
     property OnOpen;
     property OnClose;
+    { Triggered when modem status changed }
+    property OnModemStatus: TNotifyEvent read FOnModemStatus write FOnModemStatus;
   end;
 
-  function GetFirstWord(var s: string; const delimiter: string = ' '): string;
+  function ExtractFirstWord(var s: string; const delimiter: string = ' '): string;
 
 implementation
 
-function GetFirstWord(var s: string; const delimiter: string = ' '): string;
+function ExtractFirstWord(var s: string; const delimiter: string = ' '): string;
 var
   i: Integer;
 begin
@@ -169,42 +185,41 @@ begin
   FDataBits := 8;
   FParity := 'N';
   FStopBits := stb1;
-  FSoftFlow := True;
-  FHardFlow := False;
+  FFlowControl := sfcNone;
   FMinDataBytes := 1;
   FActive := False;
   //Self.slReadData := TStringList.Create();
   FReadDataStr := '';
 end;
 
-procedure TDataPortUART.Open(const InitStr: string = '');
+procedure TDataPortUART.Open(const AInitStr: string = '');
 var
   s, ss: string;
 begin
-  ss := InitStr;
+  ss := AInitStr;
 
   // Port
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   if s <> '' then
     FPort := s;
 
   // BaudRate
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   FBaudRate := StrToIntDef(s, FBaudRate);
 
   // DataBits
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   FDataBits := StrToIntDef(s, FDataBits);
 
   // Parity
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   if s <> '' then
     FParity := s[1];
   if Pos(FParity, 'NOEMSnoems') = 0 then
     FParity := 'N';
 
   // StopBits
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   if s = '1' then
     FStopBits := stb1
   else if s = '1.5' then
@@ -212,27 +227,23 @@ begin
   else if s = '2' then
     FStopBits := stb2;
 
+  FFlowControl := sfcNone;
   // SoftFlow
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   if s = '1' then
-    FSoftFlow := True
-  else if s = '0' then
-    FSoftFlow := False;
+    FFlowControl := sfcSoft;
 
   // HardFlow
-  s := GetFirstWord(ss, ',');
+  s := ExtractFirstWord(ss, ',');
   if s = '1' then
-    FHardFlow := True
-  else if s = '0' then
-    FHardFlow := False;
+    FFlowControl := sfcSend;
 
   // don't inherits Open() - OnOpen event will be after successfull connection
 end;
 
 destructor TDataPortUART.Destroy();
 begin
-  //FreeAndNil(Self.slReadData);
-  FreeAndNil(Self.FLock);
+  FreeAndNil(FLock);
   inherited Destroy();
 end;
 
@@ -242,7 +253,6 @@ begin
   begin
     if FLock.BeginWrite then
     begin
-      //slReadData.Add(AMsg);
       FReadDataStr := FReadDataStr + AMsg;
       FLock.EndWrite;
 
@@ -250,67 +260,45 @@ begin
         FOnDataAppear(Self);
     end;
 
+  end
+  else
+  begin
+    FModemStatus := GetModemStatus();
+    if Assigned(OnModemStatus) then
+      OnModemStatus(Self);
   end;
 end;
 
 procedure TDataPortUART.OnErrorHandler(Sender: TObject; const AMsg: string);
 begin
-  if Assigned(Self.FOnError) then
-    Self.FOnError(Self, AMsg);
-  Self.FActive := False;
+  FActive := False;
+  if (AMsg <> '') and Assigned(OnError) then
+    OnError(Self, AMsg)
+  else if Assigned(OnClose) then
+    OnClose(Self);
 end;
 
 procedure TDataPortUART.OnConnectHandler(Sender: TObject);
 begin
-  Self.FActive := True;
+  FActive := True;
   if Assigned(OnOpen) then
     OnOpen(Self);
 end;
 
-{
-function TDataPortIP.Peek(size: Integer = MaxInt): AnsiString;
-var
-  i, num, remain: Integer;
-begin
-  Result := '';
-  remain := size;
-  FLock.BeginRead();
-  try
-    for i:=0 to slReadData.Count do
-    begin
-      num := Length(slReadData[i]);
-      if num > remain then
-        num := remain;
-      Result := Result + Copy(slReadData[i], 1, num);
-      remain := remain - num;
-      if remain <= 0 then
-        Break;
-    end;
-  finally
-    FLock.EndRead();
-  end;
-end;
-}
-
-function TDataPortUART.Peek(size: Integer = MaxInt): AnsiString;
+function TDataPortUART.Peek(ASize: Integer): AnsiString;
 begin
   FLock.BeginRead();
   try
-    Result := Copy(FReadDataStr, 1, size);
+    Result := Copy(FReadDataStr, 1, ASize);
   finally
     FLock.EndRead();
   end;
 end;
 
 function TDataPortUART.PeekSize(): Cardinal;
-  //var i: Integer;
 begin
-  //Result:=0;
   FLock.BeginRead();
   try
-    //// Length of all strings
-    //for i := 0 to slReadData.Count-1 do
-    //  Result := Result + Cardinal(Length(slReadData[i]));
     Result := Cardinal(Length(FReadDataStr));
   finally
     FLock.EndRead();
@@ -332,52 +320,32 @@ begin
   FModemStatus.RTS := AValue;
 end;
 
-{
-function TDataPortIP.Pull(size: Integer = MaxInt): AnsiString;
-var
-  num, len, remain: Integer;
-begin
-  Result := '';
-  remain := size;
-  if not FLock.BeginWrite() then
-    Exit;
-  try
-    while slReadData.Count > 0 do
-    begin
-      // we read every string to exclude line delimiters
-      len := Length(slReadData[0]);
-      num := len;
-      if num > remain then
-        num := remain;
-      Result := Result + Copy(slReadData[0], 1, num);
-      remain := remain - num;
-      if num >= len then
-        slReadData.Delete(0)
-      else
-      begin
-        Delete(slReadData[0], 1, num);
-        Break;
-      end;
-      if remain <= 0 then Break;
-    end;
-  finally
-    FLock.EndWrite();
-  end;
-end;
-}
-
-function TDataPortUART.Pull(size: Integer = MaxInt): AnsiString;
+function TDataPortUART.Pull(ASize: Integer): AnsiString;
 begin
   Result := '';
   if FLock.BeginWrite() then
   begin
     try
-      Result := Copy(FReadDataStr, 1, size);
-      Delete(FReadDataStr, 1, size);
+      Result := Copy(FReadDataStr, 1, ASize);
+      Delete(FReadDataStr, 1, ASize);
     finally
       FLock.EndWrite();
     end;
   end;
+end;
+
+procedure TDataPortUART.SetHardFlow(AValue: Boolean);
+begin
+  FHardFlow := AValue;
+  if FHardFlow then
+    FFlowControl := sfcSend;
+end;
+
+procedure TDataPortUART.SetSoftFlow(AValue: Boolean);
+begin
+  FSoftFlow := AValue;
+  if FSoftFlow then
+    FFlowControl := sfcSoft;
 end;
 
 procedure TDataPortUART.SetBaudRate(AValue: Integer);
@@ -392,20 +360,15 @@ begin
   FDataBits := AValue;
 end;
 
-procedure TDataPortUART.SetHardFlow(AValue: Boolean);
+procedure TDataPortUART.SetFlowControl(AValue: TSerialFlowControl);
 begin
-  FHardFlow := AValue;
+  FFlowControl := AValue;
 end;
 
 procedure TDataPortUART.SetParity(AValue: AnsiChar);
 begin
   if Pos(AValue, 'NOEMSnoems') > 0 then
     FParity := AValue;
-end;
-
-procedure TDataPortUART.SetSoftFlow(AValue: Boolean);
-begin
-  FSoftFlow := AValue;
 end;
 
 procedure TDataPortUART.SetStopBits(AValue: TSerialStopBits);

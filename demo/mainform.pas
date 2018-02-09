@@ -212,8 +212,10 @@ begin
   cbSerialBitrate.Items.Append('300');
   cbSerialBitrate.Items.Append('1200');
   cbSerialBitrate.Items.Append('9600');
-  cbSerialBitrate.Items.Append('115384');
-  cbSerialBitrate.Items.Append('230769');
+  cbSerialBitrate.Items.Append('19200');
+  cbSerialBitrate.Items.Append('57600');
+  cbSerialBitrate.Items.Append('115200');
+  cbSerialBitrate.Items.Append('230400');
   cbSerialBitrate.Items.Append('923076');
   cbSerialBitrate.ItemIndex := 2;
 

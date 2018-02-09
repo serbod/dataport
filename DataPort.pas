@@ -35,7 +35,7 @@ interface
 uses Classes;
 
 type
-  TMsgEvent = procedure(Sender: TObject; const AMsg: string) of object;
+  TMsgEvent = procedure(Sender: TObject; const AMsg: AnsiString) of object;
 
   { TDataPort }
 
@@ -65,9 +65,9 @@ type
     { Write data string to port }
     function Push(const AData: AnsiString): Boolean; virtual; abstract;
     { Read and remove <size> bytes from incoming buffer. By default, read all data. }
-    function Pull(size: Integer = MaxInt): AnsiString; virtual; abstract;
+    function Pull(ASize: Integer = MaxInt): AnsiString; virtual; abstract;
     { Read, but not remove <size> bytes from incoming buffer. }
-    function Peek(size: Integer = MaxInt): AnsiString; virtual; abstract;
+    function Peek(ASize: Integer = MaxInt): AnsiString; virtual; abstract;
     { Get number of bytes waiting in incoming buffer }
     function PeekSize(): Cardinal; virtual; abstract;
   end;

@@ -1,8 +1,8 @@
 {
 Serial communication port (UART). In Windows it COM-port, real or virtual.
-In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/FLock/LCK..ttyS for port FLocking
+In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/lock/LCK..ttyS for port locking
 
-Sergey Bodrov, 2012-2017
+(C) Sergey Bodrov, 2012-2018
 
 Properties:
   Port - port name (COM1, /dev/ttyS01)
@@ -18,7 +18,7 @@ Methods:
     DataBits - default 8
     Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
     StopBits - (1, 1.5, 2)
-    SoftFlow - Enable XON/XOFF handshake, default 1
+    SoftFlow - Enable XON/XOFF byte ($11 for resume and $13 for pause transmission), default 1
     HardFlow - Enable CTS/RTS handshake, default 0
 
 Events:
@@ -66,14 +66,14 @@ type
     procedure Execute(); override;
   public
     sPort: string;
-    iBaudRate: Integer;
+    BaudRate: Integer;
     DataBits: Integer;
     Parity: char;
-    StopBits: Integer;
-    SoftFlow: Boolean;
-    HardFlow: Boolean;
+    StopBits: TSerialStopBits;
+    FlowControl: TSerialFlowControl;
     CalledFromThread: Boolean;
     sToSend: AnsiString;
+    SleepInterval: Integer;
     constructor Create(AParent: TDataPortUART); reintroduce;
     property SafeMode: Boolean read FSafeMode write FSafeMode;
     property Serial: TBlockSerial read FSerial;
@@ -91,13 +91,20 @@ type
   TDataPortSerial = class(TDataPortUART)
   private
     FSerialClient: TSerialClient;
+    FParity: AnsiChar;
+    FDataBits: Integer;
+    FMinDataBytes: Integer;
+    FBaudRate: Integer;
+    FPort: string;
+    FFlowControl: TSerialFlowControl;
+    FStopBits: TSerialStopBits;
+    function CloseClient(): Boolean;
   protected
     procedure SetBaudRate(AValue: Integer); override;
     procedure SetDataBits(AValue: Integer); override;
     procedure SetParity(AValue: AnsiChar); override;
     procedure SetStopBits(AValue: TSerialStopBits); override;
-    procedure SetSoftFlow(AValue: Boolean); override;
-    procedure SetHardFlow(AValue: Boolean); override;
+    procedure SetFlowControl(AValue: TSerialFlowControl); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
@@ -109,7 +116,7 @@ type
          DataBits - default 8
          Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N
          StopBits - (1, 1.5, 2)
-         SoftFlow - Enable XON/XOFF handshake, default 1
+         SoftFlow - Enable XON/XOFF handshake, default 0
          HardFlow - Enable CTS/RTS handshake, default 0 }
     procedure Open(const AInitStr: string = ''); override;
     procedure Close(); override;
@@ -136,11 +143,8 @@ type
     property Parity: AnsiChar read FParity write SetParity;
     { StopBits - (stb1, stb15, stb2), default stb1 }
     property StopBits: TSerialStopBits read FStopBits write SetStopBits;
-    { Software flow control, enable XON/XOFF handshake, default 1 }
-    property SoftFlow: Boolean read FSoftFlow write SetSoftFlow;
-    { Hardware flow control, not supported by many USB adapters
-      Enable CTS/RTS handshake, default 0 }
-    property HardFlow: Boolean read FHardFlow write SetHardFlow;
+    { FlowControl - (sfcNone, sfcSend, sfcReady, sfcSoft) default sfcNone }
+    property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl;
     { Minimum bytes in incoming buffer to trigger OnDataAppear }
     property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes;
     property Active;
@@ -164,6 +168,7 @@ constructor TSerialClient.Create(AParent: TDataPortUART);
 begin
   inherited Create(True);
   FParentDataPort := AParent;
+  SleepInterval := 10;
 end;
 
 procedure TSerialClient.Config();
@@ -218,7 +223,7 @@ begin
   Result := (Serial.LastError <> 0) and (Serial.LastError <> ErrTimeout);
   if Result then
   begin
-    sLastError := IntToStr(Serial.LastError) + '=' + Serial.LastErrorDesc;
+    sLastError := Serial.LastErrorDesc;
     if Assigned(FParentDataPort.OnError) then
       Synchronize(SyncProcOnError)
     else if Assigned(OnErrorEvent) then
@@ -228,19 +233,39 @@ begin
 end;
 
 procedure TSerialClient.Execute();
+var
+  SoftFlow: Boolean;
+  HardFlow: Boolean;
+  iStopBits: Integer;
 begin
   sLastError := '';
+  SoftFlow := False;
+  HardFlow := False;
+  iStopBits := 1;
+
+  if Terminated then Exit;
 
   FSerial := TBlockSerial.Create();
   try
     Serial.DeadlockTimeout := 3000;
     Serial.Connect(sPort);
-    Sleep(1);
+    Sleep(SleepInterval);
     if Serial.LastError = 0 then
     begin
-      Serial.Config(iBaudRate, DataBits, Parity, StopBits, SoftFlow, HardFlow);
+      case StopBits of
+        stb1:  iStopBits := SB1;
+        stb15: iStopBits := SB1andHalf;
+        stb2:  iStopBits := SB2;
+      end;
+
+      if FlowControl = sfcSoft then
+        SoftFlow := True
+      else if FlowControl = sfcSend then
+        HardFlow := True;
+
+      Serial.Config(BaudRate, DataBits, Parity, iStopBits, SoftFlow, HardFlow);
       FDoConfig := False;
-      Sleep(1);
+      Sleep(SleepInterval);
     end;
 
     if not IsError() then
@@ -255,14 +280,23 @@ begin
     begin
       sLastError := '';
 
+      Serial.GetCommState();
+      if IsError() then
+        Break;
+
       if FDoConfig then
       begin
-        Serial.Config(iBaudRate, DataBits, Parity, StopBits, SoftFlow, HardFlow);
+        if FlowControl = sfcSoft then
+          SoftFlow := True
+        else if FlowControl = sfcSend then
+          HardFlow := True;
+        Serial.Config(BaudRate, DataBits, Parity, iStopBits, SoftFlow, HardFlow);
         FDoConfig := False;
+        Sleep(SleepInterval);
       end
       else
       begin
-        sFromPort := Serial.RecvPacket(100);
+        sFromPort := Serial.RecvPacket(SleepInterval);
       end;
 
       if IsError() then
@@ -281,7 +315,7 @@ begin
 
       if sToSend <> '' then
       begin
-        if Serial.CanWrite(10) then
+        if Serial.CanWrite(SleepInterval) then
         begin
           Serial.SendString(sToSend);
           if IsError() then
@@ -353,43 +387,72 @@ begin
   FSerialClient := nil;
 end;
 
+destructor TDataPortSerial.Destroy();
+begin
+  if Assigned(FSerialClient) then
+  begin
+    FSerialClient.OnIncomingMsgEvent := nil;
+    FSerialClient.OnErrorEvent := nil;
+    FSerialClient.OnConnectEvent := nil;
+    FreeAndNil(FSerialClient);
+  end;
+  inherited Destroy();
+end;
+
+function TDataPortSerial.CloseClient(): Boolean;
+begin
+  Result := True;
+  if Assigned(FSerialClient) then
+  begin
+    Result := not FSerialClient.CalledFromThread;
+    if Result then
+    begin
+      FSerialClient.OnIncomingMsgEvent := nil;
+      FSerialClient.OnErrorEvent := nil;
+      FSerialClient.OnConnectEvent := nil;
+      FreeAndNil(FSerialClient);
+    end
+    else
+      FSerialClient.Terminate()
+  end;
+end;
+
 procedure TDataPortSerial.Open(const AInitStr: string = '');
 begin
   inherited Open(AInitStr);
 
-  if Assigned(FSerialClient) then
-  begin
-    FreeAndNil(FSerialClient);
-  end;
+  if not CloseClient() then
+    Exit;
+
   FSerialClient := TSerialClient.Create(Self);
-  FSerialClient.OnIncomingMsgEvent := Self.OnIncomingMsgHandler;
-  FSerialClient.OnErrorEvent := Self.OnErrorHandler;
-  FSerialClient.OnConnectEvent := Self.OnConnectHandler;
-  FSerialClient.SafeMode := True;
+  FSerialClient.OnIncomingMsgEvent := OnIncomingMsgHandler;
+  FSerialClient.OnErrorEvent := OnErrorHandler;
+  FSerialClient.OnConnectEvent := OnConnectHandler;
+  FSerialClient.SafeMode := HalfDuplex;
 
   FSerialClient.sPort := FPort;
-  FSerialClient.iBaudRate := FBaudRate;
+  FSerialClient.BaudRate := FBaudRate;
   FSerialClient.DataBits := FDataBits;
   FSerialClient.Parity := FParity;
-  FSerialClient.StopBits := Ord(FStopBits);
-  FSerialClient.SoftFlow := FSoftFlow;
-  FSerialClient.HardFlow := FHardFlow;
+  FSerialClient.StopBits := FStopBits;
+  FSerialClient.FlowControl := FFlowControl;
 
   // Check serial port
   //if Pos(Port, synaser.GetSerialPortNames())=0 then Exit;
   {$IFDEF UNIX}
-  // detect FLock file name
+  // detect lock file name
   if Pos('tty', Port) > 0 then
   begin
-    s := '/var/FLock/LCK..' + Copy(Port, Pos('tty', Port), maxint);
+    s := '/var/lock/LCK..' + Copy(Port, Pos('tty', Port), maxint);
     if FileExists(s) then
     begin
-      // try to remove FLock file (if any)
+      // try to remove lock file (if any)
       DeleteFile(s);
     end;
   end;
   {$ENDIF}
   FSerialClient.Suspended := False;
+  // don't set FActive - will be set in OnConnect event after successfull connection
 end;
 
 procedure TDataPortSerial.Close();
@@ -402,18 +465,6 @@ begin
       FreeAndNil(FSerialClient);
   end;
   inherited Close();
-end;
-
-destructor TDataPortSerial.Destroy();
-begin
-  if Assigned(FSerialClient) then
-  begin
-    FSerialClient.OnIncomingMsgEvent := nil;
-    FSerialClient.OnErrorEvent := nil;
-    FSerialClient.OnConnectEvent := nil;
-    FreeAndNil(FSerialClient);
-  end;
-  inherited Destroy();
 end;
 
 class function TDataPortSerial.GetSerialPortNames: string;
@@ -467,7 +518,7 @@ begin
   if Assigned(SerialClient) and FLock.BeginWrite() then
   begin
     try
-      SerialClient.SendString(AData);
+      Result := SerialClient.SendString(AData);
     finally
       FLock.EndWrite();
     end;
@@ -479,7 +530,7 @@ begin
   inherited SetBaudRate(AValue);
   if Active then
   begin
-    SerialClient.iBaudRate := FBaudRate;
+    SerialClient.BaudRate := FBaudRate;
     SerialClient.Config();
   end;
 end;
@@ -504,22 +555,12 @@ begin
   end;
 end;
 
-procedure TDataPortSerial.SetHardFlow(AValue: Boolean);
+procedure TDataPortSerial.SetFlowControl(AValue: TSerialFlowControl);
 begin
-  inherited SetHardFlow(AValue);
+  inherited SetFlowControl(AValue);
   if Active then
   begin
-    SerialClient.HardFlow := FHardFlow;
-    SerialClient.Config();
-  end;
-end;
-
-procedure TDataPortSerial.SetSoftFlow(AValue: Boolean);
-begin
-  inherited SetSoftFlow(AValue);
-  if Active then
-  begin
-    SerialClient.SoftFlow := FSoftFlow;
+    SerialClient.FlowControl := FFlowControl;
     SerialClient.Config();
   end;
 end;
@@ -529,11 +570,7 @@ begin
   inherited SetStopBits(AValue);
   if Active then
   begin
-    case FStopBits of
-      stb1:  SerialClient.StopBits := SB1;
-      stb15: SerialClient.StopBits := SB1andHalf;
-      stb2:  SerialClient.StopBits := SB2;
-    end;
+    SerialClient.StopBits := FStopBits;
     SerialClient.Config();
   end;
 end;
