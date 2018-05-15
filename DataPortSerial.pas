@@ -30,6 +30,10 @@ unit DataPortSerial;
 interface
 
 uses
+  {$IFDEF FPC}
+    {$DEFINE NO_LIBC}
+  {$ENDIF}
+
   {$IFNDEF MSWINDOWS}
     {$IFNDEF NO_LIBC}
     Libc,
@@ -418,6 +422,10 @@ begin
 end;
 
 procedure TDataPortSerial.Open(const AInitStr: string = '');
+{$IFDEF UNIX}
+var
+  s: string;
+{$ENDIF}
 begin
   inherited Open(AInitStr);
 
