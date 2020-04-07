@@ -27,13 +27,14 @@ Events:
 }
 unit DataPortSerial;
 
+{$IFDEF FPC}
+  {$MODE DELPHI}
+  {$DEFINE NO_LIBC}
+{$ENDIF}
+
 interface
 
 uses
-  {$IFDEF FPC}
-    {$DEFINE NO_LIBC}
-  {$ENDIF}
-
   {$IFNDEF MSWINDOWS}
     {$IFNDEF NO_LIBC}
     Libc,
@@ -307,12 +308,15 @@ begin
         Break
       else if (Length(sFromPort) > 0) then
       begin
-        if Assigned(FParentDataPort.OnDataAppear) then
-          Synchronize(SyncProc)
-        else if Assigned(OnIncomingMsgEvent) then
+        try
+          if Assigned(FParentDataPort.OnDataAppear) then
+            Synchronize(SyncProc)
+          else
+          if Assigned(OnIncomingMsgEvent) then
             OnIncomingMsgEvent(Self, sFromPort);
-
-        sFromPort := '';
+        finally
+          sFromPort := '';
+        end;
       end;
 
       Sleep(1);

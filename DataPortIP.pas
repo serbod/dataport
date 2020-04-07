@@ -434,13 +434,13 @@ begin
     end;
   end;
 
-  if (ActiveCount = 0) then
+  {if (ActiveCount = 0) then
   begin
     if Assigned(FIpReadThread) then
       FreeAndNil(FIpReadThread);
     if Assigned(FLock) then
       FreeAndNil(FLock);
-  end;
+  end; }
 end;
 
 function TIpSocketPool.GetItem(AIndex: Integer): TIpSocketItem;
@@ -686,8 +686,7 @@ begin
   if Assigned(FIpSocketItem) and FLock.BeginWrite() then
   begin
     try
-      FIpSocketItem.SendString(AData);
-      Result := True;
+      Result := FIpSocketItem.SendString(AData);
     finally
       FLock.EndWrite();
     end;
