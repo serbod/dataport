@@ -96,13 +96,6 @@ type
   TDataPortSerial = class(TDataPortUART)
   private
     FSerialClient: TSerialClient;
-    FParity: AnsiChar;
-    FDataBits: Integer;
-    FMinDataBytes: Integer;
-    FBaudRate: Integer;
-    FPort: string;
-    FFlowControl: TSerialFlowControl;
-    FStopBits: TSerialStopBits;
     function CloseClient(): Boolean;
   protected
     procedure SetBaudRate(AValue: Integer); override;
