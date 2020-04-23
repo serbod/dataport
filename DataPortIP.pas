@@ -205,9 +205,9 @@ begin
       if Assigned(FItem.DataPortIP) then
       begin
         // acquire lock
-        ItemLockCount := InterLockedIncrement(FItem.LockCount);
+        //ItemLockCount := InterLockedIncrement(FItem.LockCount);
         try
-          if (ItemLockCount = 1) then
+          //if (ItemLockCount = 1) then
           begin
             // connect
             if FItem.Active and (not Assigned(FItem.Socket)) then
@@ -283,7 +283,7 @@ begin
           end;
         finally
           // release lock
-          InterLockedDecrement(FItem.LockCount);
+          //InterLockedDecrement(FItem.LockCount);
         end;
       end
       else
