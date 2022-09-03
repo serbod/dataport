@@ -166,7 +166,8 @@ procedure Register;
 implementation
 
 const
-  TX_BUF_SIZE = 128;
+  //TX_BUF_SIZE = 128;  // safe size
+  TX_BUF_SIZE = 512;  // optimal size
 
 procedure Register;
 begin
@@ -206,6 +207,7 @@ begin
   begin
     // some FTDI chips or drivers can't receive many bytes at once
     WriteSize := TX_BUF_SIZE;
+    //WriteSize := $FF;
     if (WritePos + WriteSize) > TotalSize then
       WriteSize := TotalSize - WritePos;
 
@@ -224,9 +226,12 @@ begin
         //FFtIOStatus := FT_Write(FFtHandle, @FFtOutBuffer, WriteSize, @WriteResult);
         if WritePos + WriteSize > Length(AData) then
           Break;
+        WriteResult := 0;
         FFtIOStatus := FT_Write(FFtHandle, @AData[WritePos+1], WriteSize, @WriteResult);
         if FFtIOStatus = FT_OK then
         begin
+          if WriteResult = 0 then
+            WriteResult := WriteSize;
           Result := Result + WriteResult;
           if WriteResult <> WriteSize then
             Break;
@@ -400,10 +405,11 @@ begin
       // at the time of the request + the read timeout value.
       FRxData := '';
       ReadCount := FReadCount;
-      if (ReadCount = 1) then
+      ReadResult := 0;
+      {if (ReadCount = 1) then
       begin
         ReadResult := ReadCount;
-      end;
+      end; }
 
       FFtIOStatus := FT_GetStatus(FFtHandle, @FFtRxQBytes, @FFtTxQBytes,
         @FFtEventStatus);
@@ -461,6 +467,9 @@ begin
   else if Assigned(OnError) then
     OnError(Self, FLastErrorStr);
 
+  OnIncomingMsgEvent := nil;
+  OnError := nil;
+  OnConnect := nil;
 end;
 
 constructor TFtdiClient.Create(AParent: TDataPortUART);
@@ -711,13 +720,9 @@ end;
 function TDataPortFtdi.Push(const AData: AnsiString): Boolean;
 begin
   Result := False;
-  if Active and Assigned(FtdiClient) and FLock.BeginWrite() then
+  if Active and Assigned(FtdiClient) then
   begin
-    try
-      Result := FtdiClient.SendAnsiString(AData);
-    finally
-      FLock.EndWrite();
-    end;
+    Result := FtdiClient.SendAnsiString(AData);
   end;
 end;
 

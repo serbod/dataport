@@ -69,11 +69,16 @@ type
   TDataPortUART = class(TDataPort)
   private
     FOnModemStatus: TNotifyEvent;
+    FOnDataAppearUnsafe: TNotifyEvent;
     procedure SetHardFlow(AValue: Boolean);
     procedure SetSoftFlow(AValue: Boolean);
   protected
     FReadDataStr: AnsiString;
+    {$ifdef FPC}
+    FLock: TSimpleRWSync;
+    {$else}
     FLock: TMultiReadExclusiveWriteSynchronizer;
+    {$endif}
     FPort: string;
     FBaudRate: Integer;
     FDataBits: Integer;
@@ -150,6 +155,8 @@ type
     property OnClose;
     { Triggered when modem status changed }
     property OnModemStatus: TNotifyEvent read FOnModemStatus write FOnModemStatus;
+    { Triggered when data appeared (not thread-safe, called from inner thread!) }
+    property OnDataAppearUnsafe: TNotifyEvent read FOnDataAppearUnsafe write FOnDataAppearUnsafe;
   end;
 
   function ExtractFirstWord(var s: string; const delimiter: string = ' '): string;
@@ -179,7 +186,11 @@ end;
 constructor TDataPortUART.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  {$ifdef FPC}
+  FLock := TSimpleRWSync.Create();
+  {$else}
   FLock := TMultiReadExclusiveWriteSynchronizer.Create();
+  {$endif}
   FPort := 'COM1';
   FBaudRate := 9600;
   FDataBits := 8;
@@ -256,8 +267,8 @@ begin
       FReadDataStr := FReadDataStr + AMsg;
       FLock.EndWrite;
 
-      if Assigned(FOnDataAppear) then
-        FOnDataAppear(Self);
+      if Assigned(OnDataAppearUnsafe) then
+        OnDataAppearUnsafe(Self);
     end;
 
   end

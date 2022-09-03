@@ -3,6 +3,9 @@ unit D2XXUnit;
 FTDI D2XX library interface
 }
 interface
+{$IFDEF FPC}
+  {$mode DELPHI}
+{$endif}
 
 uses SysUtils, Classes,
 
