@@ -415,6 +415,8 @@ begin
         @FFtEventStatus);
       if CheckFtError(FFtIOStatus, 'FT_GetStatus') and (FFtRxQBytes > 0) then
       begin
+        if ReadCount > FFtRxQBytes then
+          ReadCount := FFtRxQBytes;
         FFtIOStatus := FT_Read(FFtHandle, @FFtInBuffer, ReadCount, @ReadResult);
         if CheckFtError(FFtIOStatus, 'FT_Read') and (ReadResult > 0) then
         begin

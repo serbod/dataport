@@ -267,8 +267,13 @@ begin
       FReadDataStr := FReadDataStr + AMsg;
       FLock.EndWrite;
 
-      if Assigned(OnDataAppearUnsafe) then
-        OnDataAppearUnsafe(Self);
+      if Length(FReadDataStr) >= MinDataBytes then
+      begin
+        if Assigned(OnDataAppearUnsafe) then
+          OnDataAppearUnsafe(Self);
+        if Assigned(OnDataAppear) then
+          OnDataAppear(Self);
+      end;
     end;
 
   end
