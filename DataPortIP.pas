@@ -31,6 +31,11 @@ interface
 uses {$ifndef FPC}Windows,{$endif} SysUtils, Classes,
    syncobjs, DataPort, synsock, blcksock, synautil;
 
+{$ifdef Linux}
+  // Uncomment next line to enable TCP keep-alive in Linux
+  //{$define LINUX_TCP_KEEPALIVE}
+{$endif}
+
 type
   TIpProtocolEnum = (ippUDP, ippTCP);
   TIpSocketItem = class;
@@ -193,6 +198,7 @@ end;
 procedure TIpReadThread.Execute();
 var
   n, ItemLockCount: Integer;
+  {$ifdef LINUX_TCP_KEEPALIVE}OptVal: Integer;{$endif}
   IsNeedSleep: Boolean;
 begin
   n := 0;
@@ -235,6 +241,18 @@ begin
                   FEventType := 1;
                   Synchronize(SyncProc);
                 end;
+
+                {$ifdef LINUX_TCP_KEEPALIVE}
+                // Set TCP keep-alive for Linux
+                OptVal := 1;
+                SetSockOpt(FItem.Socket.Socket, SOL_SOCKET, SO_KEEPALIVE, @OptVal, SizeOf(OptVal));
+                OptVal := 3; // TCP_KEEPIDLE - Start keepalives after this period
+                SetSockOpt(FItem.Socket.Socket, 6, 4, @OptVal, SizeOf(OptVal));
+                OptVal := 3; // TCP_KEEPINTVL - Interval between keepalives
+                SetSockOpt(FItem.Socket.Socket, 6, 5, @OptVal, SizeOf(OptVal));
+                OptVal := 3; // TCP_KEEPCNT - Number of keepalives before death
+                SetSockOpt(FItem.Socket.Socket, 6, 6, @OptVal, SizeOf(OptVal));
+                {$endif}
               end;
               //IsNeedSleep := False;
             end;
