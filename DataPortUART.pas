@@ -2,7 +2,7 @@
 Serial communication port (UART). In Windows it COM-port, real or virtual.
 In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/FLock/LCK..ttyS for port FLocking
 
-(C) Sergey Bodrov, 2012-2018
+(C) Sergey Bodrov, 2012-2025
 
 Properties:
   Port - port name (COM1, /dev/ttyS01)
@@ -42,7 +42,7 @@ unit DataPortUART;
 interface
 
 uses
-  SysUtils, Classes, DataPort;
+  SysUtils, Classes, DataPort, DataPortEventer;
 
 type
   TSerialStopBits = (stb1, stb15, stb2);
@@ -95,6 +95,7 @@ type
     procedure SetParity(AValue: AnsiChar); virtual;
     procedure SetStopBits(AValue: TSerialStopBits); virtual;
     procedure SetFlowControl(AValue: TSerialFlowControl); virtual;
+    // called from inner thread!
     procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string); virtual;
     procedure OnErrorHandler(Sender: TObject; const AMsg: string); virtual;
     procedure OnConnectHandler(Sender: TObject); virtual;
@@ -126,28 +127,28 @@ type
     property ModemStatus: TModemStatus read FModemStatus;
   published
     { Serial port name (COM1, /dev/ttyS01) }
-    property Port: string read FPort write FPort;
+    property Port: string read FPort write FPort nodefault;
     { BaudRate - connection speed (50..4000000 bits per second), default 9600 }
-    property BaudRate: Integer read FBaudRate write SetBaudRate;
+    property BaudRate: Integer read FBaudRate write SetBaudRate default 9600;
     { DataBits - default 8  (5 for Baudot code, 7 for true ASCII) }
-    property DataBits: Integer read FDataBits write SetDataBits;
+    property DataBits: Integer read FDataBits write SetDataBits default 8;
     { Parity - (N - None, O - Odd, E - Even, M - Mark or S - Space) default N }
-    property Parity: AnsiChar read FParity write SetParity;
+    property Parity: AnsiChar read FParity write SetParity default 'N';
     { StopBits - (stb1, stb15, stb2), default stb1 }
-    property StopBits: TSerialStopBits read FStopBits write SetStopBits;
+    property StopBits: TSerialStopBits read FStopBits write SetStopBits default stb1;
     { Flow control - (sfcNone, sfcRTS, sfcDTR, sfcXON) default sfcNone
       sfcSend - SEND signal pair CTS/RTS, used for hardware flow control
       sfcReady - READY signal pair DTR/DSR, used for modem control
       sfcSoft - software flow control XON/XOFF byte ($11 for resume and $13 for pause transmission) }
-    property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl;
+    property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl default sfcNone;
     { deprecated, set to False and use FlowControl }
     property SoftFlow: Boolean read FSoftFlow write SetSoftFlow; {$ifdef FPC}deprecated;{$endif}
     { deprecated, set to False and use FlowControl }
     property HardFlow: Boolean read FHardFlow write SetHardFlow; {$ifdef FPC}deprecated;{$endif}
     { Minimum bytes in incoming buffer to trigger OnDataAppear }
-    property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes;
+    property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes default 1;
     { Use half-duplex for send and receive data }
-    property HalfDuplex: Boolean read FHalfDuplex write FHalfDuplex;
+    property HalfDuplex: Boolean read FHalfDuplex write FHalfDuplex default False;
     property Active;
     property OnDataAppear;
     property OnError;
@@ -201,6 +202,7 @@ begin
   FActive := False;
   //Self.slReadData := TStringList.Create();
   FReadDataStr := '';
+  RegisterDataportNotify(Self);
 end;
 
 procedure TDataPortUART.Open(const AInitStr: string = '');
@@ -254,6 +256,7 @@ end;
 
 destructor TDataPortUART.Destroy();
 begin
+  UnRegisterDataportNotify(Self);
   FreeAndNil(FLock);
   inherited Destroy();
 end;
@@ -264,18 +267,17 @@ begin
   begin
     if FLock.BeginWrite then
     begin
-      FReadDataStr := FReadDataStr + AMsg;
-      FLock.EndWrite;
-
-      if Length(FReadDataStr) >= MinDataBytes then
-      begin
-        if Assigned(OnDataAppearUnsafe) then
-          OnDataAppearUnsafe(Self);
-        if Assigned(OnDataAppear) then
-          OnDataAppear(Self);
+      try
+        FReadDataStr := FReadDataStr + AMsg;
+      finally
+        FLock.EndWrite;
       end;
-    end;
 
+      NotifyDataport(Self, DP_NOTIFY_DATA);
+
+      if Assigned(OnDataAppearUnsafe) then
+        OnDataAppearUnsafe(Self);
+    end;
   end
   else
   begin
@@ -289,16 +291,19 @@ procedure TDataPortUART.OnErrorHandler(Sender: TObject; const AMsg: string);
 begin
   FActive := False;
   if (AMsg <> '') and Assigned(OnError) then
-    OnError(Self, AMsg)
+    //OnError(Self, AMsg)
+    NotifyDataport(Self, DP_NOTIFY_ERROR, AMsg)
   else if Assigned(OnClose) then
-    OnClose(Self);
+    NotifyDataport(Self, DP_NOTIFY_CLOSE)
+    //OnClose(Self);
 end;
 
 procedure TDataPortUART.OnConnectHandler(Sender: TObject);
 begin
   FActive := True;
   if Assigned(OnOpen) then
-    OnOpen(Self);
+    //OnOpen(Self);
+    NotifyDataport(Self, DP_NOTIFY_OPEN);
 end;
 
 function TDataPortUART.Peek(ASize: Integer): AnsiString;

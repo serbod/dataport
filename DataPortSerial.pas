@@ -48,7 +48,7 @@ uses
   {$ELSE}
     Windows,
   {$ENDIF}
-  SysUtils, Classes, DataPort, DataPortUART, synaser, synautil;
+  SysUtils, Classes, DataPort, DataPortUART, DataPortEventer, synaser, synautil;
 
 type
   { TSerialClient - serial port reader/writer, based on Ararat Synapse }
@@ -56,12 +56,14 @@ type
   private
     FSerial: TBlockSerial;
     sFromPort: AnsiString;
+    sData: AnsiString;
     sLastError: string;
     FSafeMode: Boolean;
     FOnIncomingMsgEvent: TMsgEvent;
     FOnErrorEvent: TMsgEvent;
     FOnConnectEvent: TNotifyEvent;
     FDoConfig: Boolean;
+    FLock: TSimpleRWSync;
     procedure SyncProc();
     procedure SyncProcOnError();
     procedure SyncProcOnConnect();
@@ -77,9 +79,12 @@ type
     StopBits: TSerialStopBits;
     FlowControl: TSerialFlowControl;
     CalledFromThread: Boolean;
-    sToSend: AnsiString;
+    TxData: AnsiString;
     SleepInterval: Integer;
+    TxPortionSize: Integer;  // max bytes to send in one operation
+    CommProp: TCommProp;
     constructor Create(AParent: TDataPortUART); reintroduce;
+    destructor Destroy(); override;
     property SafeMode: Boolean read FSafeMode write FSafeMode;
     property Serial: TBlockSerial read FSerial;
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
@@ -164,9 +169,17 @@ end;
 // === TSerialClient ===
 constructor TSerialClient.Create(AParent: TDataPortUART);
 begin
+  FLock := TSimpleRWSync.Create();
   inherited Create(True);
   FParentDataPort := AParent;
-  SleepInterval := 10;
+  SleepInterval := 1;
+  TxPortionSize := 1024;
+end;
+
+destructor TSerialClient.Destroy();
+begin
+  inherited Destroy();
+  FreeAndNil(FLock); // need to be AFTER destroy
 end;
 
 procedure TSerialClient.Config();
@@ -221,10 +234,10 @@ begin
   Result := (Serial.LastError <> 0) and (Serial.LastError <> ErrTimeout);
   if Result then
   begin
-    sLastError := Serial.LastErrorDesc;
-    if Assigned(FParentDataPort.OnError) then
-      Synchronize(SyncProcOnError)
-    else if Assigned(OnErrorEvent) then
+    sLastError := Serial.GetErrorDesc(Serial.LastError);
+    //sLastError := sLastError + ' OutBuf=' + IntToStr(Serial.SendingData);
+    //sLastError := sLastError + ' InBuf=' + IntToStr(Serial.WaitingData);
+    if Assigned(OnErrorEvent) then
       OnErrorEvent(Self, sLastError);
     Terminate();
   end
@@ -235,6 +248,7 @@ var
   SoftFlow: Boolean;
   HardFlow: Boolean;
   iStopBits: Integer;
+  DataSize: Integer;
 begin
   sLastError := '';
   SoftFlow := False;
@@ -268,10 +282,15 @@ begin
 
     if not IsError() then
     begin
-      if Assigned(FParentDataPort.OnOpen) then
-        Synchronize(SyncProcOnConnect)
-      else if Assigned(OnConnectEvent) then
+      if Assigned(OnConnectEvent) then
         OnConnectEvent(Self);
+    end;
+
+    // get comm proprties
+    if GetCommProperties(Serial.Handle, CommProp) then
+    begin
+      if CommProp.dwCurrentTxQueue > 0 then
+        TxPortionSize := CommProp.dwCurrentTxQueue;
     end;
 
     while not Terminated do
@@ -294,7 +313,17 @@ begin
       end
       else
       begin
-        sFromPort := Serial.RecvPacket(SleepInterval);
+        // receive all available data
+        sFromPort := Serial.RecvPacket(0);
+
+        {DataSize := Serial.WaitingData;
+        if DataSize > 0 then
+        begin
+          SetLength(sData, DataSize);
+          DataSize := Serial.RecvBuffer(@sData[1], Length(sData));
+          //SetLength(sData, DataSize);
+          sFromPort := Copy(sData, 1, DataSize);
+        end; }
       end;
 
       if IsError() then
@@ -302,9 +331,6 @@ begin
       else if (Length(sFromPort) > 0) then
       begin
         try
-          if Assigned(FParentDataPort.OnDataAppear) then
-            Synchronize(SyncProc)
-          else
           if Assigned(OnIncomingMsgEvent) then
             OnIncomingMsgEvent(Self, sFromPort);
         finally
@@ -312,19 +338,31 @@ begin
         end;
       end;
 
-      Sleep(1);
-
-      if sToSend <> '' then
-      begin
-        if Serial.CanWrite(SleepInterval) then
+      FLock.BeginWrite;
+      try
+        if TxData <> '' then
         begin
-          Serial.SendString(sToSend);
-          if IsError() then
-            Break;
-          sToSend := '';
+          //if Serial.CanWrite(0) then // Tx queue empty
+          begin
+            sData := Copy(TxData, 1, TxPortionSize);
+            //Serial.SendString(sData);
+            if Length(sData) > 0 then
+            begin
+              DataSize := Serial.SendBuffer(@sData[1], Length(sData));
+              IsError(); // check for error
+              Delete(TxData, 1, DataSize);
+              if DataSize < Length(sData) then
+              begin
+                // Tx buffer overrun, decrease TxPortionSize
+                //TxPortionSize := TxPortionSize div 2;
+                sData := '';
+              end;
+            end;
+          end;
         end;
+      finally
+        FLock.EndWrite;
       end;
-
     end;
   finally
     FreeAndNil(FSerial);
@@ -336,18 +374,11 @@ begin
   Result := False;
   if not Assigned(Self.Serial) then
     Exit;
-  if SafeMode then
-    Self.sToSend := Self.sToSend + AData
-  else
-  begin
-    if Serial.CanWrite(100) then
-      Serial.SendString(AData);
-    if (Serial.LastError <> 0) and (Serial.LastError <> ErrTimeout) then
-    begin
-      sLastError := Serial.LastErrorDesc;
-      Synchronize(SyncProc);
-      Exit;
-    end;
+  FLock.BeginWrite;
+  try
+    TxData := TxData + AData;
+  finally
+    FLock.EndWrite;
   end;
   Result := True;
 end;
@@ -358,24 +389,12 @@ var
 begin
   if not Assigned(Self.Serial) then
     Exit;
-  if SafeMode then
-  begin
-    ss := TStringStream.Create('');
-    try
-      ss.CopyFrom(st, st.Size);
-      Self.sToSend := Self.sToSend + ss.DataString;
-    finally
-      ss.Free();
-    end;
-  end
-  else
-  begin
-    Serial.SendStreamRaw(st);
-    if Serial.LastError <> 0 then
-    begin
-      sLastError := Serial.LastErrorDesc;
-      Synchronize(SyncProc);
-    end;
+  ss := TStringStream.Create('');
+  try
+    ss.CopyFrom(st, st.Size);
+    Self.SendString(ss.DataString);
+  finally
+    ss.Free();
   end;
 end;
 

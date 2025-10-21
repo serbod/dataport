@@ -33,10 +33,9 @@ type
   { TFtdiClient - FTDI device reader/writer thread }
   TFtdiClient = class(TThread)
   private
+    FLock: TSimpleRWSync;
     FRxData: AnsiString;
     FTxData: AnsiString;
-
-    FTxLockCount: Integer;
 
     FLastErrorStr: string;
     FOnIncomingMsgEvent: TMsgEvent;
@@ -58,9 +57,7 @@ type
     FFtInBuffer: array[0..FT_In_Buffer_Index] of byte;
     { output buffer }
     //FFtOutBuffer: array[0..FT_Out_Buffer_Index] of byte;
-    procedure SyncProc();
-    procedure SyncProcOnError();
-    procedure SyncProcOnConnect();
+
     function SendStringInternal(const AData: AnsiString): Integer;
     function CheckFtError(APortStatus: FT_Result; AFunctionName: string = ''): Boolean;
     function GetFtErrorDescription(APortStatus: FT_Result): string;
@@ -68,9 +65,7 @@ type
     FParentDataPort: TDataPortUART;
     procedure Execute(); override;
   public
-    //Serial: TBlockSerial;
     InitStr: string;
-    CalledFromThread: Boolean;
     // port properties
     BaudRate: Integer;
     DataBits: Integer;
@@ -78,9 +73,10 @@ type
     StopBits: TSerialStopBits;
     FlowControl: TSerialFlowControl;
     MinDataBytes: Integer;
-    HalfDuplex: Boolean;
 
     constructor Create(AParent: TDataPortUART); reintroduce;
+    destructor Destroy; override;
+    // thread-unsafe events
     property OnIncomingMsgEvent: TMsgEvent read FOnIncomingMsgEvent
       write FOnIncomingMsgEvent;
     property OnError: TMsgEvent read FOnErrorEvent write FOnErrorEvent;
@@ -96,6 +92,8 @@ type
     procedure SetRTS(AValue: Boolean);
     { Get COM port name }
     function GetPortName(): string;
+
+    property TxData: string read FTxData;
   end;
 
   { TDataPortFtdi }
@@ -116,7 +114,6 @@ type
     procedure SetStopBits(AValue: TSerialStopBits); override;
     procedure SetFlowControl(AValue: TSerialFlowControl); override;
 
-    property FtdiClient: TFtdiClient read FFtdiClient;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
@@ -141,6 +138,8 @@ type
     procedure SetDTR(AValue: Boolean); override;
     { Set RTS (Request to send) signal }
     procedure SetRTS(AValue: Boolean); override;
+
+    property FtdiClient: TFtdiClient read FFtdiClient;
   published
     property Active;
     { FTDI device serial number }
@@ -261,10 +260,9 @@ var
   DeviceString: AnsiString;
   s, ss: string;
   FtDeviceStringBuffer: array [1..50] of AnsiChar;
-  ReadCount, ReadResult, WriteResult: Integer;
+  ReadCount, ReadResult, WriteSize, WriteResult: Integer;
   ReadTimeout, WriteTimeout: LongWord;
   NeedSleep: Boolean;
-  LockCount: Integer;
 
 begin
   // Default settings
@@ -373,9 +371,7 @@ begin
 
         if PortStatus = FT_OK then
         begin
-          if Assigned(FParentDataPort.OnOpen) then
-            Synchronize(SyncProcOnConnect)
-          else if Assigned(OnConnect) then
+          if Assigned(OnConnect) then
             OnConnect(Self);
         end
         else
@@ -394,7 +390,8 @@ begin
           if FtModemStatusPrev <> FtModemStatus then
           begin
             FtModemStatusPrev := FtModemStatus;
-            Synchronize(SyncProc);
+            if Assigned(OnIncomingMsgEvent) then
+              OnIncomingMsgEvent(Self, '');
           end;
         end;
       end;
@@ -406,10 +403,6 @@ begin
       FRxData := '';
       ReadCount := FReadCount;
       ReadResult := 0;
-      {if (ReadCount = 1) then
-      begin
-        ReadResult := ReadCount;
-      end; }
 
       FFtIOStatus := FT_GetStatus(FFtHandle, @FFtRxQBytes, @FFtTxQBytes,
         @FFtEventStatus);
@@ -417,40 +410,49 @@ begin
       begin
         if ReadCount > FFtRxQBytes then
           ReadCount := FFtRxQBytes;
+        // This function does not return until dwBytesToRead bytes have been read into the buffer
         FFtIOStatus := FT_Read(FFtHandle, @FFtInBuffer, ReadCount, @ReadResult);
         if CheckFtError(FFtIOStatus, 'FT_Read') and (ReadResult > 0) then
         begin
           // copy input buffer to string
           SetLength(FRxData, ReadResult);
           Move(FFtInBuffer, FRxData[1], ReadResult);
-          if Assigned(FParentDataPort.OnDataAppear) then
-            Synchronize(SyncProc)
-          else if Assigned(OnIncomingMsgEvent) then
+          if Assigned(OnIncomingMsgEvent) then
             OnIncomingMsgEvent(Self, FRxData);
           FRxData := '';
           NeedSleep := False;
         end;
       end;
 
-      // HalfDuplex mode write
-      if HalfDuplex then
-      begin
-        // acquire lock
-        LockCount := InterLockedIncrement(FTxLockCount);
-        try
-          if (LockCount = 1) then
-          begin
-            if Length(FTxData) > 0 then
-            begin
-              WriteResult := SendStringInternal(FTxData);
-              Delete(FTxData, 1, WriteResult);
-              NeedSleep := False;
-            end;
-          end;
-        finally
-          // release lock
-          InterLockedDecrement(FTxLockCount);
+      FLock.BeginWrite;
+      try
+        if (Length(FTxData) > 0) then
+        begin
+          DeviceString := Copy(FTxData, 1, TX_BUF_SIZE);
         end;
+      finally
+        FLock.EndWrite;
+      end;
+
+      if DeviceString <> '' then
+      begin
+        WriteSize := Length(DeviceString);
+        WriteResult := 0;
+        FFtIOStatus := FT_Write(FFtHandle, @DeviceString[1], WriteSize, @WriteResult);
+        if (FFtIOStatus = FT_OK) then
+        begin
+          if WriteResult = 0 then
+            WriteResult := WriteSize;
+
+          FLock.BeginWrite;
+          try
+            Delete(FTxData, 1, WriteResult);
+          finally
+            FLock.EndWrite;
+          end;
+          NeedSleep := False;
+        end;
+        DeviceString := '';
       end;
 
       if NeedSleep then
@@ -464,9 +466,7 @@ begin
     FFtIOStatus := FT_INVALID_HANDLE;
   end;
 
-  if Assigned(FParentDataPort.OnError) then
-    Synchronize(SyncProcOnError)
-  else if Assigned(OnError) then
+  if Assigned(OnError) then
     OnError(Self, FLastErrorStr);
 
   OnIncomingMsgEvent := nil;
@@ -476,9 +476,16 @@ end;
 
 constructor TFtdiClient.Create(AParent: TDataPortUART);
 begin
+  FLock := TSimpleRWSync.Create();
   inherited Create(True);
   FParentDataPort := AParent;
   BaudRate := 9600;
+end;
+
+destructor TFtdiClient.Destroy;
+begin
+  inherited Destroy;  // terminate thread, if running
+  FreeAndNil(FLock);
 end;
 
 function TFtdiClient.GetFtErrorDescription(APortStatus: FT_Result): string;
@@ -510,37 +517,13 @@ begin
 end;
 
 function TFtdiClient.SendAnsiString(const AData: AnsiString): Boolean;
-var
-  WriteResult: Integer;
-  AttemptCount, LockCount: Integer;
 begin
-  Result := False;
-  AttemptCount := 10;
-  while AttemptCount > 0 do
-  begin
-    Dec(AttemptCount);
-    LockCount := InterLockedIncrement(FTxLockCount);
-    try
-      if (LockCount = 1) then
-      begin
-        if HalfDuplex then
-        begin
-          FTxData := FTxData + AData;
-          Result := True;
-        end
-        else
-        begin
-          WriteResult := SendStringInternal(AData);
-          Result := (WriteResult = Length(AData));
-        end;
-        AttemptCount := 0;
-      end
-      else
-        Sleep(1);
-    finally
-      // release lock
-      InterLockedDecrement(FTxLockCount);
-    end;
+  Result := FLock.BeginWrite;
+  if Result then
+  try
+    FTxData := FTxData + AData;
+  finally
+    FLock.EndWrite;
   end;
 end;
 
@@ -585,48 +568,6 @@ begin
   end;
 end;
 
-procedure TFtdiClient.SyncProc();
-begin
-  if not CalledFromThread then
-  begin
-    CalledFromThread := True;
-    try
-      if Assigned(OnIncomingMsgEvent) then
-        OnIncomingMsgEvent(self, FRxData);
-    finally
-      CalledFromThread := False;
-    end;
-  end;
-end;
-
-procedure TFtdiClient.SyncProcOnError();
-begin
-  if not CalledFromThread then
-  begin
-    CalledFromThread := True;
-    try
-      if Assigned(OnError) then
-        OnError(Self, FLastErrorStr);
-    finally
-      CalledFromThread := False;
-    end;
-  end;
-end;
-
-procedure TFtdiClient.SyncProcOnConnect();
-begin
-  if not CalledFromThread then
-  begin
-    CalledFromThread := True;
-    try
-      if Assigned(OnConnect) then
-        OnConnect(Self);
-    finally
-      CalledFromThread := False;
-    end;
-  end;
-end;
-
 function TFtdiClient.GetPortName(): string;
 var
   ComPortNum: Longint;
@@ -651,32 +592,14 @@ end;
 
 destructor TDataPortFtdi.Destroy();
 begin
-  if Assigned(FFtdiClient) then
-  begin
-    FFtdiClient.OnIncomingMsgEvent := nil;
-    FFtdiClient.OnError := nil;
-    FFtdiClient.OnConnect := nil;
-    FreeAndNil(FFtdiClient);
-  end;
+  CloseClient();
   inherited Destroy();
 end;
 
 function TDataPortFtdi.CloseClient(): Boolean;
 begin
   Result := True;
-  if Assigned(FFtdiClient) then
-  begin
-    Result := not FFtdiClient.CalledFromThread;
-    if Result then
-    begin
-      FFtdiClient.OnIncomingMsgEvent := nil;
-      FFtdiClient.OnError := nil;
-      FFtdiClient.OnConnect := nil;
-      FreeAndNil(FFtdiClient);
-    end
-    else
-      FFtdiClient.Terminate();
-  end;
+  FreeAndNil(FFtdiClient);
 end;
 
 procedure TDataPortFtdi.Open(const AInitStr: string);
@@ -704,7 +627,6 @@ begin
     FFtdiClient.StopBits := FStopBits;
     FFtdiClient.FlowControl := FFlowControl;
 
-    FFtdiClient.HalfDuplex := HalfDuplex;
     FFtdiClient.OnIncomingMsgEvent := OnIncomingMsgHandler;
     FFtdiClient.OnError := OnErrorHandler;
     FFtdiClient.OnConnect := OnConnectHandler;

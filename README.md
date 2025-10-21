@@ -69,7 +69,7 @@ HardFlow - Enable CTS/RTS handshake, default 0
 
 Events:
 
-  * OnConnect - Triggered after sucñessful connection.
+  * OnConnect - Triggered after successful connection.
   * OnDisconnect - Triggered after disconnection.
 
 ## TDataPortFtdi ##
