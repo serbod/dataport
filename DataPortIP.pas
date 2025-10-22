@@ -1,7 +1,7 @@
 {
 Asynchronous wrapper around Synapse TBlockSocket.
 
-(C) Sergey Bodrov, 2012-2018
+(C) Sergey Bodrov, 2012-2025
 
 When using UDP, remember, that it not session protocol, data delivery and correct
 order not guaranteed. To start receive data, you must send empty packet to
@@ -54,8 +54,8 @@ type
     FIpProtocol: TIpProtocolEnum;
     function GetLocalHost: string; virtual;
     function GetLocalPort: string; virtual;
-    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
-    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
     procedure OnConnectHandler(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
@@ -638,7 +638,7 @@ begin
     Result := '';
 end;
 
-procedure TDataPortIP.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortIP.OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   if AMsg <> '' then
   begin
@@ -647,7 +647,7 @@ begin
   end;
 end;
 
-procedure TDataPortIP.OnErrorHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortIP.OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   FIpSocketItem := nil;
   if Assigned(Self.FOnError) then

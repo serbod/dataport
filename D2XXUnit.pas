@@ -31,8 +31,8 @@ type
     DeviceType: Dword;
     ID: DWord;
     LocID: DWord;
-    SerialNumber: array [0..15] of char;
-    Description: array [0..63] of char;
+    SerialNumber: array [0..15] of AnsiChar;
+    Description: array [0..63] of AnsiChar;
     DeviceHandle: DWord;
   end;
 

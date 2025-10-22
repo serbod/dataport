@@ -7,7 +7,7 @@ Large amounts of data received by parts, and OnDataAppear event can be triggered
 If POST method selected, then request parameter mime-type='application/x-www-form-urlencoded' set,
 it allow transfer parameters as web form values.
 
-Sergey Bodrov, 2012-2016
+Sergey Bodrov, 2012-2025
 
 Properties:
   Url - address and params string, URL
@@ -65,8 +65,8 @@ type
     FParams: TStrings;
     FMethod: THttpMethods;
     FSafeMode: Boolean;
-    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
-    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
   protected
     procedure FSetParams(Val: TStrings);
   public
@@ -263,7 +263,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortHTTP.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortHTTP.OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   if AMsg <> '' then
   begin
@@ -282,7 +282,7 @@ begin
   end;
 end;
 
-procedure TDataPortHTTP.OnErrorHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortHTTP.OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   if Assigned(Self.FOnError) then
     Self.FOnError(Self, AMsg);
