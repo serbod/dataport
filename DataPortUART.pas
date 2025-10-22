@@ -1,4 +1,4 @@
-{
+﻿{
 Serial communication port (UART). In Windows it COM-port, real or virtual.
 In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/FLock/LCK..ttyS for port FLocking
 
@@ -74,11 +74,7 @@ type
     procedure SetSoftFlow(AValue: Boolean);
   protected
     FReadDataStr: AnsiString;
-    {$ifdef FPC}
     FLock: TSimpleRWSync;
-    {$else}
-    FLock: TMultiReadExclusiveWriteSynchronizer;
-    {$endif}
     FPort: string;
     FBaudRate: Integer;
     FDataBits: Integer;
@@ -96,8 +92,8 @@ type
     procedure SetStopBits(AValue: TSerialStopBits); virtual;
     procedure SetFlowControl(AValue: TSerialFlowControl); virtual;
     // called from inner thread!
-    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string); virtual;
-    procedure OnErrorHandler(Sender: TObject; const AMsg: string); virtual;
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString); virtual;
+    procedure OnErrorHandler(Sender: TObject; const AMsg: AnsiString); virtual;
     procedure OnConnectHandler(Sender: TObject); virtual;
   public
     constructor Create(AOwner: TComponent); override;
@@ -187,11 +183,7 @@ end;
 constructor TDataPortUART.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  {$ifdef FPC}
   FLock := TSimpleRWSync.Create();
-  {$else}
-  FLock := TMultiReadExclusiveWriteSynchronizer.Create();
-  {$endif}
   FPort := 'COM1';
   FBaudRate := 9600;
   FDataBits := 8;
@@ -227,7 +219,7 @@ begin
   // Parity
   s := ExtractFirstWord(ss, ',');
   if s <> '' then
-    FParity := s[1];
+    FParity := AnsiChar(s[1]);
   if Pos(FParity, 'NOEMSnoems') = 0 then
     FParity := 'N';
 
@@ -261,7 +253,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortUART.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortUART.OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   if AMsg <> '' then
   begin
@@ -287,7 +279,7 @@ begin
   end;
 end;
 
-procedure TDataPortUART.OnErrorHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortUART.OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   FActive := False;
   if (AMsg <> '') and Assigned(OnError) then

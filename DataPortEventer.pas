@@ -1,3 +1,8 @@
+{
+Cross-platform async events from read/write threads to main thread.
+
+(C) Sergey Bodrov, 2012-2025
+}
 unit DataPortEventer;
 
 {$IFDEF FPC}
@@ -8,6 +13,7 @@ unit DataPortEventer;
 interface
 
 uses
+  {$ifndef FPC}Windows, Messages, {$endif}
   SysUtils, Classes, DataPort;
 
 const
@@ -16,6 +22,18 @@ const
   DP_NOTIFY_CLOSE   = 'C';
   DP_NOTIFY_ERROR   = 'E';
   DP_NOTIFY_DATA    = 'D';
+
+{ Thread-safe functions }
+procedure RegisterDataportNotify(AValue: TDataPort);
+procedure UnRegisterDataportNotify(AValue: TDataPort);
+procedure NotifyDataport(ADataPort: TDataPort; AEventType: AnsiChar;
+  const AErrorStr: string = '');
+
+implementation
+
+{$ifndef FPC}
+const WM_DATAPORT_NOTIFY = WM_USER + 101;
+{$endif}
 
 type
   { TDataPortNotifyThread
@@ -26,35 +44,127 @@ type
 
   TDataPortNotifyThread = class(TThread)
   protected
-    FList: TStringList;
-    FLock: TSimpleRWSync;
     procedure SyncProc();
     procedure Execute; override;
+  end;
+
+  TDataPortEventer = class(TComponent)
+  protected
+    FList: TStringList;
+    FLock: TSimpleRWSync;
+    FNotifyThread: TDataPortNotifyThread;
+
+    FHWnd: HWND;
+    procedure WndMsgProc(var AMessage: TMessage);
   public
-    constructor Create; reintroduce;
+    constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
+    procedure ExecEvent();
     function GetCount: Integer;
     procedure RegisterDataport(ADataPort: TDataPort);
     procedure UnRegisterDataport(ADataPort: TDataPort);
     procedure NotifyDataport(ADataPort: TDataPort; AEventType: AnsiChar;
       const AErrorStr: string = '');
+
+    property HWnd: HWND read FHWnd;
   end;
 
-{ Thread-safe functions }
-procedure RegisterDataportNotify(AValue: TDataPort);
-procedure UnRegisterDataportNotify(AValue: TDataPort);
-procedure NotifyDataport(ADataPort: TDataPort; AEventType: AnsiChar;
-  const AErrorStr: string = '');
-
-implementation
-
 var
-  DataPortNotifyThread: TDataPortNotifyThread;
+  DataPortEventerObject: TDataPortEventer;
 
 { TDataPortNotifyThread }
 
 procedure TDataPortNotifyThread.SyncProc();
+begin
+  if Assigned(DataPortEventerObject) then
+    DataPortEventerObject.ExecEvent();
+end;
+
+procedure TDataPortNotifyThread.Execute;
+//var
+//  i: Integer;
+begin
+  while (not Terminated) and Assigned(DataPortEventerObject) do
+  begin
+    if DataPortEventerObject.GetCount > 0 then
+    begin
+      try
+        Synchronize(SyncProc);
+      except
+        // show must go on
+      end;
+    end
+    else
+      Sleep(1);
+  end;
+end;
+
+procedure RegisterDataportNotify(AValue: TDataPort);
+begin
+  if not Assigned(DataPortEventerObject) then
+    DataPortEventerObject := TDataPortEventer.Create(nil);
+  DataPortEventerObject.RegisterDataport(AValue);
+end;
+
+procedure UnRegisterDataportNotify(AValue: TDataPort);
+begin
+  if Assigned(DataPortEventerObject) then
+  begin
+    DataPortEventerObject.UnRegisterDataport(AValue);
+    if DataPortEventerObject.GetCount = 0 then
+      FreeAndNil(DataPortEventerObject);
+  end;
+end;
+
+procedure NotifyDataport(ADataPort: TDataPort; AEventType: AnsiChar;
+  const AErrorStr: string);
+begin
+  if Assigned(DataPortEventerObject) then
+    DataPortEventerObject.NotifyDataport(ADataPort, AEventType, AErrorStr);
+end;
+
+{ TDataPortEventer }
+
+procedure TDataPortEventer.WndMsgProc(var AMessage: TMessage);
+begin
+  case AMessage.Msg of
+    WM_DATAPORT_NOTIFY:
+    begin
+      if Assigned(DataPortEventerObject) then
+        DataPortEventerObject.ExecEvent();
+      AMessage.Result := 0;
+    end;
+  else
+    AMessage.Result := DefWindowProc(FHWnd, AMessage.Msg, AMessage.WParam, AMessage.LParam);
+  end;
+end;
+
+constructor TDataPortEventer.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FLock := TSimpleRWSync.Create();
+  FList := TStringList.Create();
+{$ifndef FPC}
+  FHWnd := AllocateHWnd(WndMsgProc);
+{$else}
+  FNotifyThread := TDataPortNotifyThread.Create(False);
+{$endif}
+end;
+
+destructor TDataPortEventer.Destroy;
+begin
+{$ifndef FPC}
+  DeallocateHWnd(FHWnd);
+{$else}
+  FreeAndNil(FNotifyThread);
+{$endif}
+  FreeAndNil(FList);
+  FreeAndNil(FLock);
+  inherited;
+end;
+
+procedure TDataPortEventer.ExecEvent;
 var
   cEventType: Char;
   Item: TDataPort;
@@ -62,6 +172,8 @@ var
 begin
   cEventType := DP_NOTIFY_NONE;
   sError := '';
+  Item := nil;
+
   FLock.BeginWrite;
   try
     if FList.Count > 0 then
@@ -95,52 +207,7 @@ begin
   end;
 end;
 
-procedure TDataPortNotifyThread.Execute;
-//var
-//  i: Integer;
-begin
-  while not Terminated do
-  begin
-    if GetCount > 0 then
-    begin
-      Synchronize(SyncProc);
-    end
-    else
-      Sleep(1);
-
-    {for i := 0 to FList.Count-1 do
-    begin
-      FItem := TDataPortUART(FList.Items[i]);
-      if Assigned(FItem.OnDataAppear) and (FItem.PeekSize() > 0) then
-      begin
-        FEventType := DP_NOTIFY_DATA;
-        Synchronize(SyncProc);
-      end;
-
-      if Assigned(FItem.OnError) and (FErrorStr <> '') then
-      begin
-        FEventType := DP_NOTIFY_ERROR;
-        Synchronize(SyncProc);
-      end;
-    end; }
-  end;
-end;
-
-constructor TDataPortNotifyThread.Create;
-begin
-  FLock := TSimpleRWSync.Create();
-  FList := TStringList.Create();
-  inherited Create(False);
-end;
-
-destructor TDataPortNotifyThread.Destroy;
-begin
-  inherited Destroy;
-  FreeAndNil(FList);
-  FreeAndNil(FLock);
-end;
-
-function TDataPortNotifyThread.GetCount: Integer;
+function TDataPortEventer.GetCount: Integer;
 begin
   FLock.BeginRead;
   try
@@ -150,11 +217,12 @@ begin
   end;
 end;
 
-procedure TDataPortNotifyThread.RegisterDataport(ADataPort: TDataPort);
+procedure TDataPortEventer.RegisterDataport(ADataPort: TDataPort);
 begin
+  //
 end;
 
-procedure TDataPortNotifyThread.UnRegisterDataport(ADataPort: TDataPort);
+procedure TDataPortEventer.UnRegisterDataport(ADataPort: TDataPort);
 var
   i: Integer;
 begin
@@ -170,7 +238,7 @@ begin
   end;
 end;
 
-procedure TDataPortNotifyThread.NotifyDataport(ADataPort: TDataPort;
+procedure TDataPortEventer.NotifyDataport(ADataPort: TDataPort;
   AEventType: AnsiChar; const AErrorStr: string);
 begin
   FLock.BeginWrite;
@@ -179,37 +247,16 @@ begin
   finally
     FLock.EndWrite;
   end;
-end;
-
-procedure RegisterDataportNotify(AValue: TDataPort);
-begin
-  if not Assigned(DataPortNotifyThread) then
-    DataPortNotifyThread := TDataPortNotifyThread.Create();
-  DataPortNotifyThread.RegisterDataport(AValue);
-end;
-
-procedure UnRegisterDataportNotify(AValue: TDataPort);
-begin
-  if Assigned(DataPortNotifyThread) then
-  begin
-    DataPortNotifyThread.UnRegisterDataport(AValue);
-    if DataPortNotifyThread.GetCount = 0 then
-      FreeAndNil(DataPortNotifyThread);
-  end;
-end;
-
-procedure NotifyDataport(ADataPort: TDataPort; AEventType: AnsiChar;
-  const AErrorStr: string);
-begin
-  if Assigned(DataPortNotifyThread) then
-    DataPortNotifyThread.NotifyDataport(ADataPort, AEventType, AErrorStr);
+{$ifndef FPC}
+  PostMessage(HWnd, WM_DATAPORT_NOTIFY, 0, 0);
+{$endif}
 end;
 
 initialization
-  DataPortNotifyThread := nil;
+  DataPortEventerObject := nil;
 
 finalization
-  FreeAndNil(DataPortNotifyThread);
+  FreeAndNil(DataPortEventerObject);
 
 end.
 

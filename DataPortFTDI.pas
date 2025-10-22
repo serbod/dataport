@@ -1,7 +1,7 @@
 {
 Serial communication port based on FTD2XX library.
 
-(C) Sergey Bodrov, 2012-2018
+(C) Sergey Bodrov, 2012-2025
 
 Properties:
   SerialNumber      - FTDI device serial number
@@ -93,7 +93,7 @@ type
     { Get COM port name }
     function GetPortName(): string;
 
-    property TxData: string read FTxData;
+    property TxData: AnsiString read FTxData;
   end;
 
   { TDataPortFtdi }
@@ -129,7 +129,7 @@ type
     function Push(const AData: AnsiString): Boolean; override;
 
     { list of available devices in format <DeviceDescription>:<SerialNumber><LineFeed> }
-    class function GetFtdiDeviceList(): string;
+    class function GetFtdiDeviceList(): AnsiString;
     //class function GetFtdiDriverVersion(): string;
 
     { Get modem wires status (DSR,CTS,Ring,Carrier) }
@@ -257,7 +257,7 @@ var
   FtModemStatusPrev: LongWord;
 
   PortStatus: FT_Result;
-  DeviceString: AnsiString;
+  SerialString, DeviceString: AnsiString;
   s, ss: string;
   FtDeviceStringBuffer: array [1..50] of AnsiChar;
   ReadCount, ReadResult, WriteSize, WriteResult: Integer;
@@ -287,11 +287,11 @@ begin
   FtDeviceStringBuffer[1] := #0; // remove warning
   ss := InitStr;
   DeviceString := ExtractFirstWord(ss, ':');
-  s := ExtractFirstWord(ss, ':'); // Serial num
-  if Length(s) > 0 then
+  SerialString := ExtractFirstWord(ss, ':'); // Serial num
+  if Length(SerialString) > 0 then
   begin
     FillChar(FtDeviceStringBuffer, SizeOf(FtDeviceStringBuffer), 0);
-    Move(s[1], FtDeviceStringBuffer, Length(s));
+    Move(SerialString[1], FtDeviceStringBuffer, Length(SerialString));
     PortStatus := FT_OpenEx(@FtDeviceStringBuffer, FT_OPEN_BY_SERIAL_NUMBER, @FFtHandle);
   end
   else if Length(DeviceString) > 0 then
@@ -650,7 +650,7 @@ begin
   end;
 end;
 
-class function TDataPortFtdi.GetFtdiDeviceList(): string;
+class function TDataPortFtdi.GetFtdiDeviceList(): AnsiString;
 var
   FtDeviceCount, DeviceIndex: LongWord;
   PortStatus: FT_Result;

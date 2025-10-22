@@ -1,8 +1,8 @@
-{
+﻿{
 Serial communication port (UART). In Windows it COM-port, real or virtual.
 In Linux it /dev/ttyS or /dev/ttyUSB. Also, Linux use file /var/lock/LCK..ttyS for port locking
 
-(C) Sergey Bodrov, 2012-2018
+(C) Sergey Bodrov, 2012-2025
 
 Properties:
   Port - port name (COM1, /dev/ttyS01)
@@ -75,7 +75,7 @@ type
     sPort: string;
     BaudRate: Integer;
     DataBits: Integer;
-    Parity: char;
+    Parity: AnsiChar;
     StopBits: TSerialStopBits;
     FlowControl: TSerialFlowControl;
     CalledFromThread: Boolean;
@@ -275,7 +275,7 @@ begin
       else if FlowControl = sfcSend then
         HardFlow := True;
 
-      Serial.Config(BaudRate, DataBits, Parity, iStopBits, SoftFlow, HardFlow);
+      Serial.Config(BaudRate, DataBits, Char(Parity), iStopBits, SoftFlow, HardFlow);
       FDoConfig := False;
       Sleep(SleepInterval);
     end;
@@ -307,7 +307,7 @@ begin
           SoftFlow := True
         else if FlowControl = sfcSend then
           HardFlow := True;
-        Serial.Config(BaudRate, DataBits, Parity, iStopBits, SoftFlow, HardFlow);
+        Serial.Config(BaudRate, DataBits, Char(Parity), iStopBits, SoftFlow, HardFlow);
         FDoConfig := False;
         Sleep(SleepInterval);
       end
