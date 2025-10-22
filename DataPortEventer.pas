@@ -54,8 +54,10 @@ type
     FLock: TSimpleRWSync;
     FNotifyThread: TDataPortNotifyThread;
 
+    {$ifndef FPC}
     FHWnd: HWND;
     procedure WndMsgProc(var AMessage: TMessage);
+    {$endif}
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -67,7 +69,9 @@ type
     procedure NotifyDataport(ADataPort: TDataPort; AEventType: AnsiChar;
       const AErrorStr: string = '');
 
+    {$ifndef FPC}
     property HWnd: HWND read FHWnd;
+    {$endif}
   end;
 
 var
@@ -126,6 +130,7 @@ end;
 
 { TDataPortEventer }
 
+{$ifndef FPC}
 procedure TDataPortEventer.WndMsgProc(var AMessage: TMessage);
 begin
   case AMessage.Msg of
@@ -139,6 +144,7 @@ begin
     AMessage.Result := DefWindowProc(FHWnd, AMessage.Msg, AMessage.WParam, AMessage.LParam);
   end;
 end;
+{$endif}
 
 constructor TDataPortEventer.Create(AOwner: TComponent);
 begin
