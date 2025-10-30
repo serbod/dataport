@@ -29,7 +29,7 @@ unit DataPortIP;
 interface
 
 uses {$ifndef FPC}Windows,{$endif} SysUtils, Classes,
-   syncobjs, DataPort, synsock, blcksock, synautil;
+   DataPort, DataPortEventer, synsock, blcksock, synautil;
 
 {$ifdef Linux}
   // Uncomment next line to enable TCP keep-alive in Linux
@@ -45,7 +45,6 @@ type
   TDataPortIP = class(TDataPort)
   private
     //slReadData: TStringList; // for storing every incoming data packet separately
-    FLock: TMultiReadExclusiveWriteSynchronizer;
     procedure SetIpProtocol(AValue: TIpProtocolEnum);
   protected
     FIpSocketItem: TIpSocketItem;
@@ -54,9 +53,6 @@ type
     FIpProtocol: TIpProtocolEnum;
     function GetLocalHost: string; virtual;
     function GetLocalPort: string; virtual;
-    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
-    procedure OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
-    procedure OnConnectHandler(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy(); override;
@@ -72,6 +68,8 @@ type
     function PeekSize(): Cardinal; override;
     { IP protocol type }
     property IpProtocol: TIpProtocolEnum read FIpProtocol write SetIpProtocol;
+    { internal IP socket }
+    property IpSocketItem: TIpSocketItem read FIpSocketItem;
   published
     { IP-address or name of remote host }
     property RemoteHost: string read FRemoteHost write FRemoteHost;
@@ -106,12 +104,8 @@ type
   { TIpSocketItem }
   { Item for sockets list, created on Open(), used by reader thread }
   TIpSocketItem = class(TObject)
-  private
-    FOnIncomingMsg: TMsgEvent;
-    FOnError: TMsgEvent;
-    FOnConnect: TNotifyEvent;
-    FLock: TCriticalSection;
   public
+    Lock: TSimpleRWSync; // managed by TIpSocketPool
     // Only socket reader can manage Socket
     Socket: TBlockSocket;
     DataPortIP: TDataPortIP;
@@ -127,11 +121,11 @@ type
     function GetLocalPort(): string;
     function SendString(const ADataStr: AnsiString): Boolean;
     function SendStream(st: TStream): Boolean;
-
-    property Lock: TCriticalSection read FLock;
-    property OnIncomingMsg: TMsgEvent read FOnIncomingMsg write FOnIncomingMsg;
-    property OnError: TMsgEvent read FOnError write FOnError;
-    property OnConnect: TNotifyEvent read FOnConnect write FOnConnect;
+    // thread-safe
+    procedure RxPush(const AData: AnsiString);
+    function RxPull(ASize: Integer = MaxInt): AnsiString;
+    function RxPeek(ASize: Integer = MaxInt): AnsiString;
+    function RxPeekSize(): Cardinal;
   end;
 
 procedure Register;
@@ -142,20 +136,20 @@ type
   { TIpSocketPool }
   { For better portability to DLL and stability, reader thread and critical section
     automaticaly created after unit initialisation, when first DataPortIP opened.
-    And destroyed when last DataPortIP closed, before unit finalisation. }
+    And destroyed when last DataPortIP closed, before unit finalization. }
   TIpSocketPool = class(TList)
   private
     FIpReadThread: TThread;
-    FLock: TCriticalSection;
+    FLock: TSimpleRWSync;
   protected
     procedure Notify(Ptr: Pointer; Action: TListNotification); override;
   public
     procedure BeforeDestruction(); override;
-    function DataPortOpen(ADataPortIP: TDataPortIP; AIncomingMsgHandler: TMsgEvent; AErrorHandler: TMsgEvent; AConnectHandler: TNotifyEvent): TIpSocketItem;
+    function DataPortOpen(ADataPortIP: TDataPortIP): TIpSocketItem;
     procedure DataPortClose(ADataPortIP: TDataPortIP);
     function GetItem(AIndex: Integer): TIpSocketItem;
     { Lock for modifing items list. NOTE! Can be nil if no items in list! }
-    property Lock: TCriticalSection read FLock;
+    property Lock: TSimpleRWSync read FLock;
   end;
 
   { TIpReadThread }
@@ -163,10 +157,8 @@ type
   TIpReadThread = class(TThread)
   protected
     FItem: TIpSocketItem;
-    FEventType: Byte; // 0 - none, 1-connect, 2-data, 3-error
     procedure CloseSocket();
     procedure Execute(); override;
-    procedure SyncProc();
   public
     IpSocketPool: TIpSocketPool;
   end;
@@ -236,11 +228,7 @@ begin
               begin
                 // Connected event
                 FItem.Connected := True;
-                if Assigned(FItem.OnConnect) then
-                begin
-                  FEventType := 1;
-                  Synchronize(SyncProc);
-                end;
+                NotifyDataport(FItem.DataPortIP, DP_NOTIFY_OPEN);
 
                 {$ifdef LINUX_TCP_KEEPALIVE}
                 // Set TCP keep-alive for Linux
@@ -263,15 +251,11 @@ begin
             if FItem.Active and Assigned(FItem.Socket) then
             begin
               try
-                FItem.RxDataStr := FItem.RxDataStr + FItem.Socket.RecvPacket(0);
+                FItem.RxPush(FItem.Socket.RecvPacket(0));
                 if FItem.Socket.LastError = 0 then
                 begin
                   // DataRead event
-                  if Assigned(FItem.OnIncomingMsg) then
-                  begin
-                    FEventType := 2;
-                    Synchronize(SyncProc);
-                  end;
+                  NotifyDataport(FItem.DataPortIP, DP_NOTIFY_DATA);
                 end
                 else if FItem.Socket.LastError = WSAETIMEDOUT then
                 begin
@@ -310,12 +294,12 @@ begin
         CloseSocket();
         if Assigned(IpSocketPool.Lock) then
         begin
-          IpSocketPool.Lock.Acquire();
+          IpSocketPool.Lock.BeginWrite();
           try
             IpSocketPool.Delete(n);
             Dec(n);
           finally
-            IpSocketPool.Lock.Release();
+            IpSocketPool.Lock.EndWrite();
           end;
         end;
       end;
@@ -323,22 +307,18 @@ begin
       // Error event
       if FItem.ErrorStr <> '' then
       begin
-        if Assigned(FItem.OnError) then
-        begin
-          FEventType := 3;
-          Synchronize(SyncProc);
-        end;
+        NotifyDataport(FItem.DataPortIP, DP_NOTIFY_ERROR, FItem.ErrorStr);
         FItem.ErrorStr := '';
+        NotifyDataport(FItem.DataPortIP, DP_NOTIFY_CLOSE);
       end;
 
       Inc(n);
     end
     else
-    begin
       n := 0;
-      if IsNeedSleep then
-        Sleep(1);
-    end;
+
+    if IsNeedSleep then
+      Sleep(1);
   end;
 
   if Terminated then
@@ -351,16 +331,6 @@ begin
       IpSocketPool.Delete(n);
     end;
   end;
-end;
-
-procedure TIpReadThread.SyncProc();
-begin
-  case FEventType of
-    1: FItem.OnConnect(FItem);
-    2: FItem.OnIncomingMsg(FItem, FItem.RxDataStr);
-    3: FItem.OnError(FItem, FItem.ErrorStr);
-  end;
-  FEventType := 0;
 end;
 
 { TIpSocketPool }
@@ -383,9 +353,7 @@ begin
   inherited BeforeDestruction;
 end;
 
-function TIpSocketPool.DataPortOpen(ADataPortIP: TDataPortIP;
-  AIncomingMsgHandler: TMsgEvent; AErrorHandler: TMsgEvent;
-  AConnectHandler: TNotifyEvent): TIpSocketItem;
+function TIpSocketPool.DataPortOpen(ADataPortIP: TDataPortIP): TIpSocketItem;
 var
   i: Integer;
 begin
@@ -396,21 +364,19 @@ begin
       Exit;
   end;
 
+  if not Assigned(FLock) then
+    FLock := TSimpleRWSync.Create();
+
   Result := TIpSocketItem.Create();
+  Result.Lock := FLock;
   Result.DataPortIP := ADataPortIP;
-  Result.OnIncomingMsg := AIncomingMsgHandler;
-  Result.OnError := AErrorHandler;
-  Result.OnConnect := AConnectHandler;
   Result.Active := True;
 
-  if not Assigned(FLock) then
-    FLock := TCriticalSection.Create();
-
-  FLock.Acquire();
+  FLock.BeginWrite();
   try
     Add(Result);
   finally
-    FLock.Release();
+    FLock.EndWrite();
   end;
 
   if (not Assigned(FIpReadThread)) then
@@ -430,7 +396,7 @@ begin
   ActiveCount := 0;
   if Assigned(FLock) then
   begin
-    FLock.Acquire();
+    FLock.BeginWrite();
     try
       for i := Count-1 downto 0 do
       begin
@@ -438,9 +404,6 @@ begin
         if Item.DataPortIP = ADataPortIP then
         begin
           Item.DataPortIP := nil;
-          Item.OnIncomingMsg := nil;
-          Item.OnError := nil;
-          Item.OnConnect := nil;
           Break;
         end
         else if Assigned(Item.DataPortIP) then
@@ -448,7 +411,7 @@ begin
       end;
 
     finally
-      FLock.Release();
+      FLock.EndWrite();
     end;
   end;
 
@@ -488,6 +451,47 @@ begin
   end
   else
     Result := '';
+end;
+
+function TIpSocketItem.RxPeek(ASize: Integer): AnsiString;
+begin
+  Lock.BeginRead;
+  try
+    Result := Copy(RxDataStr, 1, ASize);
+  finally
+    Lock.EndRead;
+  end;
+end;
+
+function TIpSocketItem.RxPeekSize: Cardinal;
+begin
+  Lock.BeginRead;
+  try
+    Result := Length(RxDataStr);
+  finally
+    Lock.EndRead;
+  end;
+end;
+
+function TIpSocketItem.RxPull(ASize: Integer): AnsiString;
+begin
+  Lock.BeginWrite;
+  try
+    Result := Copy(RxDataStr, 1, ASize);
+    Delete(RxDataStr, 1, ASize);
+  finally
+    Lock.EndWrite;
+  end;
+end;
+
+procedure TIpSocketItem.RxPush(const AData: AnsiString);
+begin
+  Lock.BeginWrite;
+  try
+    RxDataStr := RxDataStr + AData;
+  finally
+    Lock.EndWrite;
+  end;
 end;
 
 function TIpSocketItem.SendString(const ADataStr: AnsiString): Boolean;
@@ -560,7 +564,6 @@ end;
 constructor TDataPortIP.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  self.FLock := TMultiReadExclusiveWriteSynchronizer.Create();
   Self.FRemoteHost := '';
   Self.FRemotePort := '';
   Self.FActive := False;
@@ -585,7 +588,7 @@ begin
 
   if Assigned(GlobalIpSocketPool) then
   begin
-    FIpSocketItem := GlobalIpSocketPool.DataPortOpen(Self, OnIncomingMsgHandler, OnErrorHandler, OnConnectHandler);
+    FIpSocketItem := GlobalIpSocketPool.DataPortOpen(Self);
   end;
 
   // don't inherits Open() - OnOpen event will be after successfull connection
@@ -604,15 +607,7 @@ begin
   FIpSocketItem := nil;
   if Assigned(GlobalIpSocketPool) then
     GlobalIpSocketPool.DataPortClose(Self);
-  FreeAndNil(FLock);
   inherited Destroy();
-end;
-
-procedure TDataPortIP.OnConnectHandler(Sender: TObject);
-begin
-  FActive := True;
-  if Assigned(OnOpen) then
-    OnOpen(Self);
 end;
 
 procedure TDataPortIP.SetIpProtocol(AValue: TIpProtocolEnum);
@@ -638,76 +633,33 @@ begin
     Result := '';
 end;
 
-procedure TDataPortIP.OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
-begin
-  if AMsg <> '' then
-  begin
-    if Assigned(FOnDataAppear) then
-      FOnDataAppear(self);
-  end;
-end;
-
-procedure TDataPortIP.OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
-begin
-  FIpSocketItem := nil;
-  if Assigned(Self.FOnError) then
-    Self.FOnError(Self, AMsg);
-  FActive := False;
-end;
-
 function TDataPortIP.Peek(ASize: Integer): AnsiString;
 begin
+  Result := '';
   if Assigned(FIpSocketItem) then
-  begin
-    FLock.BeginRead();
-    try
-      Result := Copy(FIpSocketItem.RxDataStr, 1, ASize);
-    finally
-      FLock.EndRead();
-    end;
-  end;
+    Result := FIpSocketItem.RxPeek(ASize);
 end;
 
 function TDataPortIP.PeekSize(): Cardinal;
 begin
+  Result := 0;
   if Assigned(FIpSocketItem) then
-  begin
-    FLock.BeginRead();
-    try
-      Result := Cardinal(Length(FIpSocketItem.RxDataStr));
-    finally
-      FLock.EndRead();
-    end;
-  end
-  else
-    Result := 0;
+    Result := FIpSocketItem.RxPeekSize();
 end;
 
 function TDataPortIP.Pull(ASize: Integer): AnsiString;
 begin
   Result := '';
   if Assigned(FIpSocketItem) then
-  begin
-    FLock.BeginRead();
-    try
-      Result := Copy(FIpSocketItem.RxDataStr, 1, ASize);
-      Delete(FIpSocketItem.RxDataStr, 1, ASize);
-    finally
-      FLock.EndRead();
-    end;
-  end;
+    Result := FIpSocketItem.RxPull(ASize);
 end;
 
 function TDataPortIP.Push(const AData: AnsiString): boolean;
 begin
   Result := False;
-  if Assigned(FIpSocketItem) and FLock.BeginWrite() then
+  if Assigned(FIpSocketItem) then
   begin
-    try
-      Result := FIpSocketItem.SendString(AData);
-    finally
-      FLock.EndWrite();
-    end;
+    Result := FIpSocketItem.SendString(AData);
   end;
 end;
 
