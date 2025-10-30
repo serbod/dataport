@@ -33,6 +33,7 @@ requires
 contains
   DataPortIP in 'DataPortIP.pas',
   DataPortFile in 'DataPortFile.pas',
+  DataPortPipes in 'DataPortPipes.pas',
   DataPortHTTP in 'DataPortHTTP.pas',
   DataPortUART in 'DataPortUART.pas',
   DataPortSerial in 'DataPortSerial.pas',

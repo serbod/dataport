@@ -15,9 +15,16 @@ unit DataPortPipes;
 
 interface
 
-uses SysUtils, Classes, DataPort, Pipes;
+uses SysUtils, Classes,
+  {$ifdef FPC}Pipes, {$endif}
+  DataPort;
 
 type
+{$ifndef FPC}
+  TInputPipeStream = class(THandleStream);
+  TOutputPipeStream = class(THandleStream);
+{$endif}
+
   { TPipesClient - pipes port reader/writer }
   TPipesClient = class(TThread)
   private
@@ -60,8 +67,8 @@ type
     FMinDataBytes: Integer;
     FInputHandle: THandle;
     FOutputHandle: THandle;
-    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
-    procedure OnErrorHandler(Sender: TObject; const AMsg: string);
+    procedure OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
+    procedure OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
     procedure OnConnectHandler(Sender: TObject);
   public
     PipesClient: TPipesClient;
@@ -94,6 +101,13 @@ implementation
 procedure Register;
 begin
   RegisterComponents('DataPort', [TDataPortPipes]);
+end;
+
+function AnsiStringToStream(AStream: TStream; AStr: AnsiString): Integer;
+begin
+  Result := 0;
+  if Assigned(AStream) and (AStr <> '') then
+    Result := AStream.Write(AStr[1], Length(AStr));
 end;
 
 // === TPipesClient ===
@@ -161,7 +175,8 @@ begin
       if sToSend <> '' then
       begin
         try
-          Self.FOutputPipeStream.WriteAnsiString(sToSend);
+          //Self.FOutputPipeStream.WriteAnsiString(sToSend);
+          AnsiStringToStream(Self.FOutputPipeStream, sToSend);
         except
           on E: Exception do
           begin
@@ -188,7 +203,8 @@ begin
   else
   begin
     try
-      Self.FOutputPipeStream.WriteAnsiString(s);
+      //Self.FOutputPipeStream.WriteAnsiString(s);
+      AnsiStringToStream(Self.FOutputPipeStream, s);
     except
       on E: Exception do
       begin
@@ -312,7 +328,7 @@ begin
   inherited Destroy();
 end;
 
-procedure TDataPortPipes.OnIncomingMsgHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortPipes.OnIncomingMsgHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   if AMsg <> '' then
   begin
@@ -327,7 +343,7 @@ begin
   end;
 end;
 
-procedure TDataPortPipes.OnErrorHandler(Sender: TObject; const AMsg: string);
+procedure TDataPortPipes.OnErrorHandler(Sender: TObject; const AMsg: AnsiString);
 begin
   if Assigned(Self.FOnError) then
     Self.FOnError(Self, AMsg);

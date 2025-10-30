@@ -200,7 +200,8 @@ begin
     end;
     DP_NOTIFY_CLOSE:
     begin
-      if Assigned(Item.OnClose) then Item.OnClose(Item);
+      //if Assigned(Item.OnClose) then Item.OnClose(Item);
+      Item.Close();
     end;
     DP_NOTIFY_ERROR:
     begin
