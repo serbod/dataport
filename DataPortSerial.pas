@@ -82,7 +82,6 @@ type
     TxData: AnsiString;
     SleepInterval: Integer;
     TxPortionSize: Integer;  // max bytes to send in one operation
-    CommProp: TCommProp;
     constructor Create(AParent: TDataPortUART); reintroduce;
     destructor Destroy(); override;
     property SafeMode: Boolean read FSafeMode write FSafeMode;
@@ -249,6 +248,9 @@ var
   HardFlow: Boolean;
   iStopBits: Integer;
   DataSize: Integer;
+  {$IFDEF MSWINDOWS}
+  CommProp: TCommProp;
+  {$ENDIF}
 begin
   sLastError := '';
   SoftFlow := False;
@@ -286,12 +288,14 @@ begin
         OnConnectEvent(Self);
     end;
 
+    {$IFDEF MSWINDOWS}
     // get comm proprties
     if GetCommProperties(Serial.Handle, CommProp) then
     begin
       if CommProp.dwCurrentTxQueue > 0 then
         TxPortionSize := CommProp.dwCurrentTxQueue;
     end;
+    {$ENDIF}
 
     while not Terminated do
     begin
