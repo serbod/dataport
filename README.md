@@ -12,10 +12,10 @@ Features:
   * serial port (UART, COM-port, FTDI)
   * device file (ioctl supported) and conventional file
   * named pipes
+  * TCP listener (server)
 
 Coming soon:
 
-  * listener (server)
   * paralel port (LPT)
   * DDE
   * IPC
@@ -132,6 +132,30 @@ RemotePort - remote UPD or TCP port number
 Events:
 
   * OnConnect - Triggered after UDP port init or TCP session establiched.
+
+## TDataPortTCPServ ##
+
+Single-connection TCP server.
+
+Open and listen specified TCP port. Accept single connection, then trigger OnOpen and close listener port.
+
+Properties:
+
+  * LocalHost - IP-address or name of local host (optional)
+  * LocalPort - listener TCP port number
+  * AutoReopen - auto reopen listener after TCP session closed
+
+Methods:
+
+  * Open() - Open and listen specified TCP port. Init string format:
+```
+InitStr = 'LocalHost:LocalPort'
+```
+  * Close() - Close listener and TCP session
+
+Events:
+
+  * OnOpen - Triggered after incoming TCP session establiched.
 
 ## TDataPortHTTP ##
 
