@@ -138,14 +138,14 @@ type
       sfcSoft - software flow control XON/XOFF byte ($11 for resume and $13 for pause transmission) }
     property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl default sfcNone;
     { deprecated, set to False and use FlowControl }
-    property SoftFlow: Boolean read FSoftFlow write SetSoftFlow; {$ifdef FPC}deprecated;{$endif}
+    property SoftFlow: Boolean read FSoftFlow write SetSoftFlow default False; {$ifdef FPC}deprecated;{$endif}
     { deprecated, set to False and use FlowControl }
-    property HardFlow: Boolean read FHardFlow write SetHardFlow; {$ifdef FPC}deprecated;{$endif}
+    property HardFlow: Boolean read FHardFlow write SetHardFlow default False; {$ifdef FPC}deprecated;{$endif}
     { Minimum bytes in incoming buffer to trigger OnDataAppear }
     property MinDataBytes: Integer read FMinDataBytes write FMinDataBytes default 1;
     { Use half-duplex for send and receive data }
     property HalfDuplex: Boolean read FHalfDuplex write FHalfDuplex default False;
-    property Active;
+    property Active default False;
     property OnDataAppear;
     property OnError;
     property OnOpen;

@@ -79,7 +79,7 @@ type
     property LocalHost: string read GetLocalHost;
     { local UPD or TCP port number }
     property LocalPort: string read GetLocalPort;
-    property Active;
+    property Active default False;
     property OnDataAppear;
     property OnError;
     { Triggered after UDP port init or TCP session establiched }
@@ -90,6 +90,49 @@ type
   TDataPortTCP = class(TDataPortIP)
   public
     procedure Open(const AInitStr: string = ''); override;
+  end;
+
+  { TDataPortTCPListener }
+
+  TDataPortTCPListener = class(TThread)
+  protected
+    BlockSocket: TBlockSocket;
+    Listener: TTCPBlockSocket;
+    procedure Execute(); override;
+  public
+    BindHost: string;
+    BindPort: string;
+    Started: Boolean;
+    Accepted: Boolean;
+    IpSocketItem: TIpSocketItem;
+  end;
+
+  { TDataPortTCPServ }
+
+  TDataPortTCPServ = class(TDataPortIP)
+  protected
+    FListener: TDataPortTCPListener;
+    FLocalHost: string;
+    FLocalPort: string;
+    FAutoReopen: Boolean;
+    function GetLocalHost: string; override;
+    function GetLocalPort: string; override;
+    function GetRemoteHost: string; virtual;
+    function GetRemotePort: string; virtual;
+  public
+    procedure Open(const AInitStr: string = ''); override;
+    procedure Close(); override;
+  published
+    { IP-address or name of local host }
+    property LocalHost: string read GetLocalHost write FLocalHost;
+    { local TCP port number }
+    property LocalPort: string read GetLocalPort write FLocalPort;
+    { IP-address or name of remote host }
+    property RemoteHost: string read GetRemoteHost;
+    { remote TCP port number }
+    property RemotePort: string read GetRemotePort;
+    { auto re-open after disconnect (on error) }
+    property AutoReopen: Boolean read FAutoReopen write FAutoReopen default False;
   end;
 
   { TDataPortUDP }
@@ -108,8 +151,10 @@ type
     Lock: TSimpleRWSync; // managed by TIpSocketPool
     // Only socket reader can manage Socket
     Socket: TBlockSocket;
+    // if DataPortIP not assigned, item will be destroyed
     DataPortIP: TDataPortIP;
     Protocol: TIpProtocolEnum;
+    SocketHandle: TSocket;
     LockCount: Integer;
     RxDataStr: AnsiString;
     //TxDataStr: AnsiString;
@@ -119,6 +164,8 @@ type
 
     function GetLocalHost(): string;
     function GetLocalPort(): string;
+    function GetRemoteHost(): string;
+    function GetRemotePort(): string;
     function SendString(const ADataStr: AnsiString): Boolean;
     function SendStream(st: TStream): Boolean;
     // thread-safe
@@ -170,6 +217,7 @@ procedure Register;
 begin
   RegisterComponents('DataPort', [TDataPortTCP]);
   RegisterComponents('DataPort', [TDataPortUDP]);
+  RegisterComponents('DataPort', [TDataPortTCPServ]);
 end;
 
 { TIpReadThread }
@@ -177,6 +225,7 @@ end;
 procedure TIpReadThread.CloseSocket();
 begin
   FItem.Active := False;
+  FItem.SocketHandle := INVALID_SOCKET;
   if Assigned(FItem.Socket) then
   begin
     try
@@ -217,7 +266,17 @@ begin
                 ippTCP: FItem.Socket := TTCPBlockSocket.Create();
               end;
 
-              FItem.Socket.Connect(FItem.DataPortIP.RemoteHost, FItem.DataPortIP.RemotePort);
+              if FItem.SocketHandle = INVALID_SOCKET then
+              begin
+                // connect to remote host
+                FItem.Socket.Connect(FItem.DataPortIP.RemoteHost, FItem.DataPortIP.RemotePort);
+              end
+              else
+              begin
+                // assign already connected socket handle
+                FItem.Socket.Socket := FItem.SocketHandle;
+              end;
+
               if FItem.Socket.LastError <> 0 then
               begin
                 // Error event
@@ -227,6 +286,7 @@ begin
               else
               begin
                 // Connected event
+                FItem.SocketHandle := FItem.Socket.Socket;
                 FItem.Connected := True;
                 NotifyDataport(FItem.DataPortIP, DP_NOTIFY_OPEN);
 
@@ -344,11 +404,8 @@ end;
 
 procedure TIpSocketPool.BeforeDestruction();
 begin
-  if Assigned(FIpReadThread) then
-    FreeAndNil(FIpReadThread);
-
-  if Assigned(FLock) then
-    FreeAndNil(FLock);
+  FreeAndNil(FIpReadThread);
+  FreeAndNil(FLock);
 
   inherited BeforeDestruction;
 end;
@@ -370,7 +427,11 @@ begin
   Result := TIpSocketItem.Create();
   Result.Lock := FLock;
   Result.DataPortIP := ADataPortIP;
-  Result.Active := True;
+  Result.SocketHandle := INVALID_SOCKET;
+  if not (ADataPortIP is TDataPortTCPServ) then
+    Result.Active := True
+  else
+    Result.Protocol := ippTCP;
 
   FLock.BeginWrite();
   try
@@ -404,7 +465,6 @@ begin
         if Item.DataPortIP = ADataPortIP then
         begin
           Item.DataPortIP := nil;
-          Break;
         end
         else if Assigned(Item.DataPortIP) then
           Inc(ActiveCount);
@@ -415,13 +475,8 @@ begin
     end;
   end;
 
-  {if (ActiveCount = 0) then
-  begin
-    if Assigned(FIpReadThread) then
-      FreeAndNil(FIpReadThread);
-    if Assigned(FLock) then
-      FreeAndNil(FLock);
-  end; }
+  if (ActiveCount = 0) then
+    FreeAndNil(FIpReadThread);
 end;
 
 function TIpSocketPool.GetItem(AIndex: Integer): TIpSocketItem;
@@ -448,6 +503,28 @@ begin
   begin
     Socket.GetSinLocal();
     Result := IntToStr(Socket.GetLocalSinPort);
+  end
+  else
+    Result := '';
+end;
+
+function TIpSocketItem.GetRemoteHost(): string;
+begin
+  if Assigned(Socket) then
+  begin
+    Socket.GetSinRemote();
+    Result := Socket.GetRemoteSinIP;
+  end
+  else
+    Result := '';
+end;
+
+function TIpSocketItem.GetRemotePort(): string;
+begin
+  if Assigned(Socket) then
+  begin
+    Socket.GetSinRemote();
+    Result := IntToStr(Socket.GetRemoteSinPort);
   end
   else
     Result := '';
@@ -500,7 +577,7 @@ var
 begin
   //TxDataStr := TxDataStr + ADataStr;
   Result := False;
-  if Assigned(Socket) then
+  if Assigned(Socket) and Active then
   begin
     // try to acquire exclusive lock
     LockTryCount := 10;
@@ -567,6 +644,7 @@ begin
   Self.FRemoteHost := '';
   Self.FRemotePort := '';
   Self.FActive := False;
+  RegisterDataportNotify(Self);
 end;
 
 procedure TDataPortIP.Open(const AInitStr: string = '');
@@ -597,13 +675,14 @@ end;
 procedure TDataPortIP.Close();
 begin
   FIpSocketItem := nil;
-  if Active and Assigned(GlobalIpSocketPool) then
+  if Assigned(GlobalIpSocketPool) then
     GlobalIpSocketPool.DataPortClose(Self);
   inherited Close();
 end;
 
 destructor TDataPortIP.Destroy();
 begin
+  UnRegisterDataportNotify(Self);
   FIpSocketItem := nil;
   if Assigned(GlobalIpSocketPool) then
     GlobalIpSocketPool.DataPortClose(Self);
@@ -668,6 +747,113 @@ begin
   FIpProtocol := ippTCP;
   inherited Open(AInitStr);
   FActive := True;
+end;
+
+{ TDataPortTCPListener }
+
+procedure TDataPortTCPListener.Execute();
+var
+  SockHandle: TSocket;
+  ListenerSocket: TTCPBlockSocket;
+begin
+  Started := False;
+  if Terminated then Exit;
+  if BindHost = '' then
+    BindHost := '0.0.0.0';
+
+  ListenerSocket := TTCPBlockSocket.Create();
+  ListenerSocket.CreateSocket();
+  //ListenerSocket.SetLinger(True, 10);
+  ListenerSocket.EnableReuse(True);
+  ListenerSocket.Bind(BindHost, BindPort);
+  if ListenerSocket.LastError = 0 then
+  begin
+    ListenerSocket.Listen();
+    if ListenerSocket.LastError = 0 then
+      Started := True;
+  end;
+
+  while Started and (not Terminated) and (not Accepted) do
+  begin
+    if ListenerSocket.CanRead(100) then
+    begin
+      SockHandle := ListenerSocket.Accept();
+
+      Accepted := True;
+      if Assigned(IpSocketItem) then
+      begin
+        IpSocketItem.SocketHandle := SockHandle;
+        IpSocketItem.Active := True;
+      end;
+    end;
+  end;
+
+  FreeAndNil(ListenerSocket);
+  Started := False;
+end;
+
+{ TDataPortTCPServ }
+
+function TDataPortTCPServ.GetLocalHost: string;
+begin
+  Result := FLocalHost;
+end;
+
+function TDataPortTCPServ.GetLocalPort: string;
+begin
+  Result := FLocalPort;
+end;
+
+function TDataPortTCPServ.GetRemoteHost: string;
+begin
+  if Assigned(FIpSocketItem) then
+    Result := FIpSocketItem.GetRemoteHost();
+end;
+
+function TDataPortTCPServ.GetRemotePort: string;
+begin
+  if Assigned(FIpSocketItem) then
+    Result := FIpSocketItem.GetRemotePort();
+end;
+
+procedure TDataPortTCPServ.Open(const AInitStr: string);
+begin
+  FreeAndNil(FListener);
+
+  // set FRemoteHost and FRemotePort from AInitStr
+  inherited Open(AInitStr);
+  if FRemoteHost <> '' then
+    FLocalHost := FRemoteHost;
+  if FRemotePort <> '' then
+    FLocalPort := FRemotePort;
+
+  if StrToIntDef(FLocalPort, 0) = 0 then
+    raise Exception.Create('Local port not specified!');
+
+  FListener := TDataPortTCPListener.Create(True);
+  FListener.IpSocketItem := FIpSocketItem;
+  FListener.BindHost := LocalHost;
+  FListener.BindPort := LocalPort;
+  FListener.Accepted := False;
+  FListener.Suspended := False;
+end;
+
+procedure TDataPortTCPServ.Close();
+var
+  NeedReopen: Boolean;
+begin
+  FreeAndNil(FListener);
+
+  NeedReopen := False;
+  if AutoReopen and Assigned(IpSocketItem) then
+  begin
+    NeedReopen := IpSocketItem.Connected;
+  end;
+
+  inherited Close();
+
+  if NeedReopen then
+    Open();
 end;
 
 procedure TDataPortUDP.Open(const AInitStr: string = '');

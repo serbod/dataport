@@ -141,22 +141,16 @@ type
 
     property FtdiClient: TFtdiClient read FFtdiClient;
   published
-    property Active;
     { FTDI device serial number }
     property SerialNumber: string read FFtSerialNumber write FFtSerialNumber;
     { FTDI device description string }
     property DeviceDescription: string read FFtDeviceDescription write FFtDeviceDescription;
-    { FlowControl - (sfcNone, sfcSend, sfcReady, sfcSoft) default sfcNone }
-    property FlowControl: TSerialFlowControl read FFlowControl write SetFlowControl;
-    property BaudRate;
-    property DataBits;
-    property MinDataBytes;
+    { Triggered when modem status changes (CTS, DTR, RI, DCD) }
+    property OnModemStatus: TNotifyEvent read FOnModemStatus write FOnModemStatus;
     property OnDataAppear;
     property OnError;
     property OnOpen;
     property OnClose;
-    { Triggered when modem status changes (CTS, DTR, RI, DCD) }
-    property OnModemStatus: TNotifyEvent read FOnModemStatus write FOnModemStatus;
   end;
 
 procedure Register;
